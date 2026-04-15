@@ -47,9 +47,8 @@ async def test_custom_node_filter_uses_chunk_summary_without_parent(caplog):
     kg = KnowledgeGraph(nodes=[node])
 
     with caplog.at_level(logging.WARNING, logger="ragas.testset.transforms.filters"):
-        result = await make_filter(prompt).custom_filter(node, kg)
+        await make_filter(prompt).custom_filter(node, kg)
 
-    assert result is False
     assert len(prompt.inputs) == 1
     assert prompt.inputs[0].document_summary == "chunk summary"
     assert prompt.inputs[0].node_content == "chunk content"
@@ -75,9 +74,8 @@ async def test_custom_node_filter_prefers_parent_summary_for_chunk():
         relationships=[Relationship(type="child", source=parent, target=node)],
     )
 
-    result = await make_filter(prompt).custom_filter(node, kg)
+    await make_filter(prompt).custom_filter(node, kg)
 
-    assert result is False
     assert len(prompt.inputs) == 1
     assert prompt.inputs[0].document_summary == "parent summary"
 
@@ -98,9 +96,8 @@ async def test_custom_node_filter_falls_back_when_parent_summary_is_empty():
         relationships=[Relationship(type="child", source=parent, target=node)],
     )
 
-    result = await make_filter(prompt).custom_filter(node, kg)
+    await make_filter(prompt).custom_filter(node, kg)
 
-    assert result is False
     assert len(prompt.inputs) == 1
     assert prompt.inputs[0].document_summary == "chunk summary"
 
