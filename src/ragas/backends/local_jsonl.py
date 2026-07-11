@@ -11,6 +11,7 @@ from uuid import uuid4
 from pydantic import BaseModel
 
 from .base import BaseBackend
+from .utils import validate_local_name
 
 
 class LocalJSONLBackend(BaseBackend):
@@ -60,6 +61,7 @@ class LocalJSONLBackend(BaseBackend):
 
     def _get_file_path(self, data_type: str, name: str) -> Path:
         """Get the full file path for a dataset or experiment."""
+        validate_local_name(name)
         return self._get_data_dir(data_type) / f"{name}.jsonl"
 
     def _serialize_datetime(self, obj: t.Any) -> t.Any:
