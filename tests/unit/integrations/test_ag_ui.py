@@ -13,6 +13,7 @@ try:
     from ag_ui.core import (
         AssistantMessage,
         EventType,
+        FunctionCall,
         MessagesSnapshotEvent,
         RunFinishedEvent,
         RunStartedEvent,
@@ -22,6 +23,7 @@ try:
         TextMessageContentEvent,
         TextMessageEndEvent,
         TextMessageStartEvent,
+        ToolCall as AGUIToolCall,
         ToolCallArgsEvent,
         ToolCallChunkEvent,
         ToolCallEndEvent,
@@ -219,6 +221,33 @@ def test_messages_snapshot_conversion():
     assert messages[1].content == "4"
     assert isinstance(messages[2], HumanMessage)
     assert messages[2].content == "Thanks!"
+
+
+def test_messages_snapshot_preserves_tool_call_name_and_args():
+    """Test that snapshot tool calls keep the real tool name and arguments."""
+    from ragas.integrations.ag_ui import convert_messages_snapshot
+    from ragas.messages import ToolCall
+
+    snapshot = MessagesSnapshotEvent(
+        messages=[
+            AssistantMessage(
+                id="msg-1",
+                content="Let me check the weather.",
+                tool_calls=[
+                    AGUIToolCall(
+                        id="tc-1",
+                        function=FunctionCall(
+                            name="get_weather", arguments='{"city": "SF"}'
+                        ),
+                    )
+                ],
+            )
+        ]
+    )
+
+    messages = convert_messages_snapshot(snapshot)
+
+    assert messages[0].tool_calls == [ToolCall(name="get_weather", args={"city": "SF"})]
 
 
 def test_snapshot_with_metadata():
