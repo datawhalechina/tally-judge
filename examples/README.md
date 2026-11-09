@@ -1,13 +1,8 @@
-# Ragas Examples
+# TallyJudge Examples
 
-Official examples demonstrating how to use Ragas for evaluating different types of AI applications including RAG systems, agents, prompts, workflows, and LLM benchmarking. These examples might be unstable and are subject to change.
+Examples demonstrating how to use TallyJudge for evaluating different types of AI applications including RAG systems, agents, prompts, workflows, and LLM benchmarking. These examples might be unstable and are subject to change.
 
 ## Installation
-
-### From PyPI (after release)
-```bash
-pip install "ragas[examples]"
-```
 
 ### Local Development
 Install both main ragas and examples packages in editable mode:
@@ -43,7 +38,7 @@ export OPENAI_API_KEY=your_key_here
 
 For Google Drive examples, also install the gdrive extra:
 ```bash
-pip install "ragas[examples,gdrive]"
+pip install -e ".[gdrive]" -e ./examples
 ```
 
 ### Running Examples as Modules
@@ -66,25 +61,7 @@ python -m ragas_examples.workflow_eval.evals
 
 ## Release process
 
-- The examples package is versioned independently using Git tags with prefix `examples-v` (e.g., `examples-v0.1.0`).
-- Publishing is handled by the GitHub Actions workflow `publish-examples.yml`, which builds from `examples/` and publishes to PyPI when such a tag is pushed.
-
-### Release Commands
-
-To create and push a new release:
-
-```bash
-# Create and push a new tag (replace X.Y.Z with actual version)
-git tag examples-vX.Y.Z
-git push origin examples-vX.Y.Z
-
-# Example:
-git tag examples-v0.1.0
-git push origin examples-v0.1.0
-```
-
-## Local Development & Testing
-
+Publish a GitHub Release from a version tag such as `vX.Y.Z`. The release workflow builds `ragas` and `ragas-examples` from that tag and attaches a wheel and source archive for each package to the release.
 
 ## Local Development & Testing
 

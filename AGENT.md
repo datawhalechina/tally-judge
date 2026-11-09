@@ -1,4 +1,4 @@
-# Tally Judge contributor guide for coding assistants
+# TallyJudge contributor guide for coding assistants
 
 ## Repository and development environment
 

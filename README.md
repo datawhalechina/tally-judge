@@ -1,8 +1,9 @@
-# Tally Judge
+# TallyJudge
 
-Tally Judge 是 Datawhale 基于 [Ragas](https://github.com/vibrantlabsai/ragas) 源码建立的衍生项目。原项目由 Vibrant Labs 和 Ragas 社区开发，以 Apache License 2.0 发布。本仓库沿用 `ragas` Python 包名，并在此维护 Datawhale 的修改。
-
-下方的 Ragas 发布徽章、文档和社区链接均指向上游。要使用本仓库的版本，请按安装说明从本地源码安装。
+> [!NOTE]
+> TallyJudge 由 Datawhale 社区维护，继承自 Vibrant Labs 和 Ragas 社区开发的 [Ragas](https://github.com/vibrantlabsai/ragas)，沿用 Apache License 2.0。
+>
+> 我们计划先维护现有的 RAG 评估能力，处理上游积压的 Issue、PR 和依赖兼容问题，再逐步完善对提示词、AI 工作流和 Agent 的评估。下方保留了上游项目的说明。
 
 <div align="center">
   <img style="vertical-align:middle" height="200"

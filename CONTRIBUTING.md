@@ -66,7 +66,7 @@ This repository is organized as a single project with integrated experimental fe
 ├── docs/                      # Documentation
 ├── .github/workflows/         # CI/CD pipeline
 ├── Makefile                   # Build commands
-└── CLAUDE.md                  # AI assistant instructions
+└── AGENT.md                  # AI assistant instructions
 ```
 
 ### Project Components
@@ -76,8 +76,7 @@ This repository is organized as a single project with integrated experimental fe
 
 ### Examples Package (ragas-examples)
 - Lives under `examples/` as an installable package `ragas-examples`
-- Published independently to PyPI via GitHub Actions workflow `publish-examples.yml`
-- Versioning via Git tags with prefix `examples-v` (e.g., `examples-v0.1.0`)
+- Built with the core package from the same release tag and attached to the GitHub Release by the [release workflow](.github/workflows/python-publish.yml).
 - Local development: `uv pip install -e . -e ./examples`
 - Run examples: `python -m ragas_examples.benchmark_llm.prompt`
 
@@ -326,7 +325,7 @@ make install
 ```
 
 ### Getting Help
-- **Documentation**: Check `CLAUDE.md` for AI assistant guidance
+- **Documentation**: Check `AGENT.md` for AI assistant guidance
 - **Commands**: Run `make help` for all available targets
 - **Issues**: Check existing GitHub issues or create a new one
 
@@ -418,4 +417,4 @@ If conflicts pin NumPy to 2.0.x, temporarily set `numpy>=2.1` in `pyproject.toml
 
 **Happy coding! 🚀**
 
-For additional context and instructions specific to AI assistants, see [CLAUDE.md](./CLAUDE.md).
+For additional context and instructions specific to AI assistants, see [AGENT.md](./AGENT.md).
