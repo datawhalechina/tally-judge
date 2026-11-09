@@ -159,10 +159,20 @@ Run `make help` to see all targets. Here are the essential commands:
 - `make clean` - Clean all generated files
 
 ### Documentation
-- `make build-docs` - Build all documentation
-- `make build-docs-pdf` - Build documentation with PDF export (requires WeasyPrint)
-- `make serve-docs` - Serve documentation locally
-- See `docs/community/pdf_export.md` for PDF export details and limitations
+
+Install Node.js (with npm) and uv. Set up the documentation environment once from the repository root:
+
+```bash
+uv venv --python 3.11 .venv-docs
+uv pip install --python .venv-docs --group docs
+```
+
+Then use the same npm commands as CI:
+
+- `npm run docs:build` to build the site in `site/` from `mkdocs.yml`.
+- `npm run docs:dev` to preview changes locally at the address printed by MkDocs.
+
+The documentation workflow builds pull requests and deploys changes on `main` to GitHub Pages.
 
 ## Development Workflows
 

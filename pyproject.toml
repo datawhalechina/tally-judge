@@ -172,22 +172,17 @@ dev = [
     "ragas[all,tracing,gdrive,ai-frameworks]",
 ]
 docs = [
-    "mkdocs>=1.6.1",
-    "mkdocs-material",
-    "mkdocs-material[imaging]",
-    "mkdocstrings[python]",
-    "mkdocs-glightbox",
-    "mkdocs-autorefs",
-    "mkdocs-gen-files",
-    "mkdocs-literate-nav",
-    "mkdocs-section-index",
-    "mkdocs-git-committers-plugin-2",
-    "mkdocs-git-revision-date-localized-plugin",
-    "mkdocs-copy-to-llm",
-    "mkdocs-llmstxt",  # Requires Python 3.10+, only used in docs CI
+    "mkdocs==1.6.1",
+    "mkdocs-material[imaging]==9.8.1",
+    "mkdocs-llmstxt==0.5.1",
+    "mkdocs-copy-to-llm==0.2.10",
+    "mkdocstrings[python]==1.0.8",
+    "mkdocstrings-python==2.0.10",
+    "mkdocs-glightbox==0.5.3",
+    "mkdocs-git-revision-date-localized-plugin==1.7.0",
+    "mkdocs-git-authors-plugin==0.10.0",
+    "mkdocs-git-committers-plugin-2==2.5.0",
 ]
 
-docs-pdf = [
-    "mkdocs-to-pdf>=0.10.1",
-    "mkdocs-mermaid-to-svg"
-]
+[tool.uv.dependency-groups]
+docs = { requires-python = ">=3.11" }

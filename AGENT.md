@@ -20,7 +20,7 @@ Run the following commands from the repository root.
 | Run a specific test | `uv run pytest tests/unit -k "test_name"` |
 | Run local CI | `make run-ci` |
 | Run benchmarks locally or in Docker | `make benchmarks` or `make benchmarks-docker` |
-| Build or preview documentation | `make build-docs` or `make serve-docs` |
+| Build or preview documentation | `npm run docs:build` or `npm run docs:dev` |
 
 Use `uv run` for Python and related tools such as pytest, Ruff and Pyright.
 The minimal installation uses the `dev-minimal` extra. The full installation
@@ -62,8 +62,7 @@ copyable code with imports. Put verbose outputs or prompts in collapsible
 numbered steps together. Cross-link pages when readers need a different level
 of detail.
 
-Use `docs/ipynb_to_md.py` to convert notebooks when maintaining generated
-Markdown. Put images in `docs/_static/`. Keep custom styling in `docs/extra/`.
+Put images in `docs/_static/`. Keep custom styling in `docs/extra/`.
 Check public exports before adding mkdocstrings links, for example
 `[BasePrompt][ragas.prompt.BasePrompt]`. When working on the RAG application
 how-to, update `docs/howtos/applications/evaluate-and-improve-rag.md` after

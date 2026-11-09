@@ -1,0 +1,8 @@
+{
+  "name": "tallyjudge-docs",
+  "private": true,
+  "scripts": {
+    "docs:build": "uv run --no-project --python .venv-docs python -m mkdocs build",
+    "docs:dev": "uv run --no-project --python .venv-docs python -m mkdocs serve"
+  }
+}
