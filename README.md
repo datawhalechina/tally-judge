@@ -1,7 +1,13 @@
-<h1 align="center">
+# Tally Judge
+
+Tally Judge 是 Datawhale 基于 [Ragas](https://github.com/vibrantlabsai/ragas) 源码建立的衍生项目。原项目由 Vibrant Labs 和 Ragas 社区开发，以 Apache License 2.0 发布。本仓库沿用 `ragas` Python 包名，并在此维护 Datawhale 的修改。
+
+下方的 Ragas 发布徽章、文档和社区链接均指向上游。要使用本仓库的版本，请按安装说明从本地源码安装。
+
+<div align="center">
   <img style="vertical-align:middle" height="200"
   src="https://raw.githubusercontent.com/vibrantlabsai/ragas/main/docs/_static/imgs/logo.png">
-</h1>
+</div>
 <p align="center">
   <i>Supercharge Your LLM Application Evaluations 🚀</i>
 </p>
@@ -56,16 +62,16 @@ Don't have a test dataset ready? We also do production-aligned test set generati
 
 ## :shield: Installation
 
-Pypi:
+Install the upstream Ragas release from PyPI:
 
 ```bash
 pip install ragas
 ```
 
-Alternatively, from source:
+To install Tally Judge, run this from the root of your checkout:
 
 ```bash
-pip install git+https://github.com/vibrantlabsai/ragas
+pip install -e .
 ```
 
 ## :fire: Quickstart
