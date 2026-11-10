@@ -178,6 +178,6 @@ code, kbd, samp, pre {
 /* Give code examples more room when both desktop sidebars are visible. */
 @media screen and (min-width: 76.25em) {
   .md-grid {
-    max-width: min(90rem, calc(100% - 2rem));
+    max-width: min(84rem, calc(100% - 4rem));
   }
 }
