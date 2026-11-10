@@ -172,8 +172,8 @@ validation:
 # Material-Docs Theme
 theme:
   name: material
-  logo: _static/imgs/ragas-logo.png
-  favicon: _static/favicon.ico
+  logo: _static/imgs/tallyjudge-logo.png
+  favicon: _static/imgs/tallyjudge-logo.png
   features:
     - content.tabs.link
     - content.code.annotate

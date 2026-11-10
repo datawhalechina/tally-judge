@@ -7,7 +7,7 @@
 
 <div align="center">
   <img style="vertical-align:middle" height="200"
-  src="https://raw.githubusercontent.com/vibrantlabsai/ragas/main/docs/_static/imgs/logo.png">
+  src="./banner.png" alt="TallyJudge">
 </div>
 <p align="center">
   <i>Supercharge Your LLM Application Evaluations 🚀</i>
