@@ -5,6 +5,8 @@ repo_name: datawhalechina/tally-judge
 repo_url: https://github.com/datawhalechina/tally-judge
 watch:
   - src
+hooks:
+  - docs_hooks/i18n.py
 
 # Navigation
 nav:
@@ -178,9 +180,6 @@ theme:
     - content.code.copy
     - navigation.tabs
     - navigation.path
-    - navigation.instant
-    - navigation.instant.prefetch
-    - navigation.instant.preview
     - navigation.sections
     - navigation.top
     - navigation.tracking
@@ -241,48 +240,118 @@ exclude_docs: |
   /extra/components/
 
 plugins:
+  - i18n:
+      docs_structure: folder
+      fallback_to_default: true
+      languages:
+        - locale: en
+          name: English
+          default: true
+          build: true
+        - locale: zh
+          name: 简体中文
+          build: true
+          site_description: 面向 AI 应用的评估框架
+          theme:
+            font:
+              text: Noto Sans SC
+          nav_translations:
+            "🚀 Get Started": "🚀 快速入门"
+            "📚 Core Concepts": "📚 核心概念"
+            "🛠️ How-to Guides": "🛠️ 操作指南"
+            "📖 References": "📖 参考手册"
+            "❤️ Community": "❤️ 社区"
+            Installation: 安装
+            Quick Start: 快速开始
+            Tutorials: 教程
+            Evaluate a prompt: 评估提示词
+            Evaluate a simple RAG system: 评估简单的 RAG 系统
+            Evaluate an AI Workflow: 评估 AI 工作流
+            Evaluate an AI Agent: 评估 AI 智能体
+            Experimentation: 实验
+            Datasets: 数据集
+            Metrics: 评估指标
+            Overview: 概览
+            Available Metrics: 可用指标
+            Retrieval Augmented Generation: 检索增强生成
+            Context Precision: 上下文精确率
+            Context Recall: 上下文召回率
+            Context Entities Recall: 上下文实体召回率
+            Noise Sensitivity: 噪声敏感度
+            Response Relevancy: 回答相关性
+            Faithfulness: 忠实度
+            Nvidia Metrics: NVIDIA 指标
+            Agents or Tool Use Cases: 智能体与工具使用
+            Natural Language Comparison: 自然语言比较
+            Factual Correctness: 事实正确性
+            Semantic Similarity: 语义相似度
+            Traditional non LLM metrics: 传统评估指标
+            General Purpose: 通用指标
+            Other Tasks: 其他任务
+            Summarization: 摘要评估
+            Test Data Generation: 测试数据生成
+            Agents or tool use: 智能体与工具使用
+            Components: 组件
+            General: 通用
+            Prompt: 提示词
+            Evaluation: 评估
+            Evaluation Sample: 评估样本
+            Evaluation Dataset: 评估数据集
+            Customizations: 自定义
+            Customise models: 自定义模型
+            Run Config: 运行配置
+            Caching: 缓存
+            Cancelling Tasks: 取消任务
+            LLM Adapters: 大语言模型适配器
+            Modify Prompts: 修改提示词
+            Adapt Metrics to Languages: 将指标适配到其他语言
+            Testset Generation: 测试集生成
+            Non-English Testset Generation: 生成非英语测试集
+            Persona Generation: 生成人物画像
+            Custom Single-hop Query: 自定义单跳查询
+            Custom Multi-hop Query: 自定义多跳查询
+            Using Pre-chunked Data: 使用已分块的数据
+            Optimizers: 优化器
+            DSPy Optimizer: DSPy 优化器
+            Applications: 应用
+            Prompt Evaluation: 提示词评估
+            Iterate and Improve Prompts: 迭代改进提示词
+            Systematic Prompt Optimization: 系统化优化提示词
+            Cost Analysis: 成本分析
+            Evaluating Multi-turn Conversations: 评估多轮对话
+            Evaluations with Vertex AI models: 使用 Vertex AI 模型评估
+            Single-hop Query Testset: 单跳查询测试集
+            Benchmarking: 基准测试
+            Evaluate a New LLM: 评估新的大语言模型
+            Agent Evaluation: 智能体评估
+            Evaluate a Text-to-SQL Agent: 评估文本转 SQL 智能体
+            Align an LLM as a Judge: 对齐裁判模型
+            RAG Evaluation: RAG 评估
+            Evaluate and Improve a RAG App: 评估和改进 RAG 应用
+            Improve RAG: 改进 RAG
+            Integrations: 集成
+            Observability: 可观测性
+            LLM Providers: 大语言模型服务商
+            Frameworks: 框架
+            Migrations: 版本迁移
+            From v0.1 to v0.2: 从 v0.1 迁移到 v0.2
+            From v0.3 to v0.4: 从 v0.3 迁移到 v0.4
+            Core: 核心 API
+            LLMs: 大语言模型
+            Embeddings: 嵌入模型
+            Tokenizers: 分词器
+            Executor: 执行器
+            Cache: 缓存
+            Schemas: 数据结构
+            Graph: 图
+            Transforms: 变换
+            Synthesizers: 合成器
+            Generation: 生成
   - search
   - social
-  - copy-to-llm:
-      repo_url: "https://raw.githubusercontent.com/datawhalechina/tally-judge/main/docs"
-      buttons:
-        copy_page: true
-        copy_markdown_link: false  # Disabled until plugin bug is fixed
-        view_as_markdown: false    # Disabled until plugin bug is fixed
-        open_in_chatgpt: false
-        open_in_claude: false
-  - llmstxt:
-      markdown_description: |
-        TallyJudge is an open-source AI evaluation framework maintained by Datawhale, based on Ragas.
-      full_output: llms-full.txt
-      sections:
-        Getting Started:
-          - getstarted/*.md
-        Tutorials:
-          - tutorials/*.md
-        Core Concepts:
-          - concepts/*.md
-          - concepts/components/*.md
-        Metrics:
-          - concepts/metrics/overview/*.md
-          - concepts/metrics/available_metrics/*.md
-        Test Data Generation:
-          - concepts/test_data_generation/*.md
-        Customization Guides:
-          - howtos/customizations/*.md
-          - howtos/customizations/metrics/*.md
-          - howtos/customizations/testgenerator/*.md
-          - howtos/customizations/optimizers/*.md
-        Application Guides:
-          - howtos/applications/*.md
-        CLI:
-          - howtos/cli/*.md
-        Integrations:
-          - howtos/integrations/*.md
-        API Reference:
-          - references/*.md
   - git-revision-date-localized:
       type: iso_date
+      enable_parallel_processing: false
   - git-authors:
       enabled: !ENV [DOCS_LOCAL_AUTHORS, true]
       show_email_address: false
@@ -290,6 +359,8 @@ plugins:
       enabled: !ENV [DOCS_GITHUB_CONTRIBUTORS, false]
       repository: datawhalechina/tally-judge
       branch: main
+  - autorefs:
+      resolve_closest: true
   - mkdocstrings:
       handlers:
         python:
