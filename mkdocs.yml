@@ -348,17 +348,6 @@ plugins:
             Synthesizers: 合成器
             Generation: 生成
   - search
-  - social
-  - git-revision-date-localized:
-      type: iso_date
-      enable_parallel_processing: false
-  - git-authors:
-      enabled: !ENV [DOCS_LOCAL_AUTHORS, true]
-      show_email_address: false
-  - git-committers:
-      enabled: !ENV [DOCS_GITHUB_CONTRIBUTORS, false]
-      repository: datawhalechina/tally-judge
-      branch: main
   - autorefs:
       resolve_closest: true
   - mkdocstrings:

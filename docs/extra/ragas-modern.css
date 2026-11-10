@@ -175,4 +175,9 @@ code, kbd, samp, pre {
   margin-top: 1.5rem;
 }
 
-/* Let Material Design handle everything else - no custom colors, spacing, or layouts */
+/* Give code examples more room when both desktop sidebars are visible. */
+@media screen and (min-width: 76.25em) {
+  .md-grid {
+    max-width: min(90rem, calc(100% - 2rem));
+  }
+}
