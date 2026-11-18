@@ -1,47 +1,60 @@
-import json
-from pathlib import Path
+"""Text scoring behavior verified against Ragas ec00339."""
 
 import pytest
 
 from tallyjudge import Dataset, Evaluator, create_metric
+from tallyjudge.registry import registry
 
-FIXTURE = json.loads(
-    (Path(__file__).parent / "fixtures/string_metrics.json").read_text(encoding="utf-8")
-)
-CASES = [
-    (plugin_id, case)
-    for plugin_id, metric in FIXTURE["metrics"].items()
-    for case in metric["cases"]
-]
+EXACT = "metric.text.exact_match"
+PRESENCE = "metric.text.string_presence"
+
+
+@pytest.fixture(params=[EXACT, PRESENCE])
+def metric(request):
+    return create_metric(request.param)
+
+
+def test_text_metric_revisions():
+    assert [registry.describe(key).revision for key in (EXACT, PRESENCE)] == ["1", "1"]
 
 
 @pytest.mark.parametrize(
-    "plugin_id,case",
-    CASES,
-    ids=[f"{plugin_id}:{case['name']}" for plugin_id, case in CASES],
+    "reference,response,exact,presence",
+    [
+        ("Paris", "Paris", 1.0, 1.0),
+        ("Paris", "Lyon", 0.0, 0.0),
+        ("cat", "the cat sat", 0.0, 1.0),
+        ("Cat", "cat", 0.0, 0.0),
+        (" cat", "cat", 0.0, 0.0),
+        ("", "", 1.0, 1.0),
+        ("", "text", 0.0, 1.0),
+        ("text", "", 0.0, 0.0),
+        ("北京", "我在北京", 0.0, 1.0),
+        ("a\nb", "a\nb", 1.0, 1.0),
+    ],
 )
-def test_legacy_fixture(plugin_id, case):
-    metric = create_metric(plugin_id)
-    result = Evaluator([metric]).run(Dataset.from_records([case["inputs"]]))
-    score = result.rows[0].metrics[plugin_id]
-    assert metric.spec.revision == FIXTURE["metrics"][plugin_id]["new_revision"]
-    if case["intentional_difference"] is None:
-        assert score.status == "success"
-        assert score.value == case["old"]["value"]
-        assert type(score.value).__name__ == case["old"]["value_type"] == "float"
-    else:
-        assert score.status == "error"
-        assert score.error.category == "validation_error"
-        assert score.value is None
-        if case["intentional_difference"] == "missing_field_validation":
-            assert case["old"]["exception_type"] == "TypeError"
-        elif plugin_id == "metric.text.string_presence":
-            assert case["old"]["exception_type"] == "AssertionError"
-        else:
-            assert "value" in case["old"]
+def test_upstream_text_scores(metric, reference, response, exact, presence):
+    dataset = Dataset.from_records([{"reference": reference, "response": response}])
+    score = Evaluator([metric]).run(dataset).rows[0].metrics[metric.spec.id]
+    assert score.status == "success"
+    assert type(score.value) is float
+    assert score.value == (exact if metric.spec.id == EXACT else presence)
 
 
-def test_fixture_identity():
-    assert FIXTURE["source_commit"] == "ec003395bb37c223fc981e6567162513aec52a71"
-    assert FIXTURE["optimized"] is False
-    assert len(FIXTURE["source_sha256"]) == 64
+@pytest.mark.parametrize(
+    "record,field",
+    [
+        ({"reference": 1, "response": "1"}, "reference"),
+        ({"reference": 1, "response": 1}, "reference"),
+        ({"reference": True, "response": True}, "reference"),
+        ({"reference": ["a"], "response": ["a"]}, "reference"),
+        ({"reference": None, "response": None}, "reference"),
+        ({"response": "a"}, "reference"),
+        ({"reference": "a"}, "response"),
+    ],
+)
+def test_migration_rejects_missing_or_nonstring_fields(metric, record, field):
+    dataset = Dataset.from_records([record])
+    score = Evaluator([metric]).run(dataset).rows[0].metrics[metric.spec.id]
+    assert (score.status, score.value) == ("error", None)
+    assert (score.error.category, score.error.field) == ("validation_error", field)
