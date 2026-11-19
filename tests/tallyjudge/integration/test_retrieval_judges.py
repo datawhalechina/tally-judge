@@ -10,6 +10,28 @@ from tallyjudge import Dataset, Evaluator, create_language_model, create_metric
 from tallyjudge.core.errors import InputValidationError
 
 
+@pytest.mark.asyncio
+async def test_recall_requires_a_reference_and_maps_malformed_classifications(client):
+    judge = make_judge(client)
+    metric = create_metric("metric.rag.context_recall", llm=judge)
+    data = Dataset.from_records(
+        [{"user_input": "q", "retrieved_contexts": ["doc"], "reference": ""}]
+    )
+    invalid = (await Evaluator([metric]).arun(data)).rows[0].metrics[metric.spec.id]
+    assert invalid.error.field == "reference" and not client.calls
+    client.chat_reply('{"classifications":[{"reason":"missing attribution"}]}')
+    data = Dataset.from_records(
+        [{"user_input": "q", "retrieved_contexts": ["doc"], "reference": "answer"}]
+    )
+    failed = (await Evaluator([metric]).arun(data)).rows[0].metrics[metric.spec.id]
+    assert (failed.status, failed.error.category, failed.error.code) == (
+        "error",
+        "model_output_error",
+        "schema_validation",
+    )
+    assert failed.usage.generation.requests == 1
+
+
 def make_judge(client, retries=0):
     return create_language_model(
         "model.openai_compatible.chat_completions",

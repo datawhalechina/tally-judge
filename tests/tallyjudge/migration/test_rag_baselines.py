@@ -26,6 +26,14 @@ RELEVANCE = "metric.rag.answer_relevance"
 # Upstream SHA-256 pairs: exact prompt bytes on Pydantic 2.14.3, then the same
 # prompt with only the JSON Schema's key order and insignificant whitespace normalized.
 PROMPTS = {
+    "recall_ranked": (
+        "a854e51d2f589314f20b8589094d7029dfb54bab612b782da87b8ced68a28959",
+        "53043749ce08fe56c5ffa15c31ca75caf238da1ed75554e59ab85cc1fe8e097e",
+    ),
+    "recall_blank": (
+        "eb579ed124ee4310c404c0f114a53c6fabf1459bf9f16c340c2600e46ce87aa7",
+        "1eb6a564f33bbc1e8286cb10eb0702a672348c331be916c25ec799d1a60c91ff",
+    ),
     "ap_reference_first": (
         "96840e20733611f9525d2b6189aadf433cfd36cf25c4d4e2f80ecfa27721a6af",
         "0ee87fa8290beca14ce31018cbe648f13bbd2df16d9ece7fd394496e16529c23",
@@ -120,6 +128,53 @@ async def test_archived_context_precision(
     if verdicts:
         assert result.usage.generation.requests == len(verdicts)
         assert result.usage.generation.requests_without_usage == len(verdicts)
+
+
+@pytest.mark.parametrize(
+    ("passages", "bits", "expected"),
+    [
+        (["first", "second", "first"], [1, 0, 1], 2 / 3),
+        (["first", "second", "first"], [0, 0], 0.0),
+        (["first", "second", "first"], [], "no_classifications"),
+        ([], [], "validation_error"),
+        ([""], [1], 1.0),
+    ],
+)
+@pytest.mark.asyncio
+async def test_archived_context_recall(passages, bits, expected, judge, client):
+    metric = create_metric("metric.rag.context_recall", llm=judge)
+    if passages:
+        items = [
+            {"statement": "same statement", "reason": "fixture", "attributed": flag}
+            for flag in bits
+        ]
+        client.chat_reply(json.dumps({"classifications": items}))
+    score = await evaluate(
+        metric,
+        {"user_input": "question", "reference": "gold", "retrieved_contexts": passages},
+    )
+    if expected == "validation_error":
+        assert (score.status, score.error.category, score.error.field) == (
+            "error",
+            expected,
+            "retrieved_contexts",
+        )
+        assert_calls(client, [])
+        return
+    if expected == "no_classifications":
+        assert (score.status, score.value, score.error.code) == (
+            "undefined",
+            None,
+            expected,
+        )
+    else:
+        assert (score.status, score.value) == ("success", pytest.approx(expected))
+    assert (
+        score.usage.generation.requests
+        == score.usage.generation.requests_without_usage
+        == 1
+    )
+    assert_calls(client, ["recall_ranked" if passages[0] else "recall_blank"])
 
 
 def assert_prompt(text, name):

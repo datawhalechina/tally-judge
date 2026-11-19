@@ -20,6 +20,8 @@ from ragas.metrics._context_precision import IDBasedContextPrecision
 from ragas.metrics._context_recall import IDBasedContextRecall
 from ragas.embeddings.base import BaseRagasEmbedding
 from ragas.llms.base import InstructorBaseRagasLLM
+from ragas.metrics.collections.context_recall.metric import ContextRecall
+from ragas.metrics.collections.context_recall.util import ContextRecallPrompt
 from ragas.metrics.collections.context_precision.metric import ContextPrecisionWithReference, ContextPrecisionWithoutReference
 from ragas.metrics.collections.context_precision.util import ContextPrecisionPrompt
 from ragas.metrics.collections.answer_relevancy.metric import AnswerRelevancy
@@ -34,6 +36,7 @@ ANSWER = "巴黎。"
 
 # Expected TallyJudge outcomes for cases where the upstream scorer raised or returned NaN.
 INTENTIONAL_DIFFERENCES = {
+    "no_classifications": {"status": "undefined", "reason": "no_classifications"},
     "no_relevant_contexts": {"status": "undefined", "reason": "no_relevant_contexts"},
     "empty_passages": {"status": "error", "reason": "validation_error"},
     "no_statements": {"status": "undefined", "reason": "no_statements"},
@@ -80,6 +83,7 @@ ID_METRICS = {"id_context_precision": IDBasedContextPrecision, "id_context_recal
 
 
 CONTEXT_METRICS = {
+    "context_recall": ContextRecall,
     "context_precision_with_reference": ContextPrecisionWithReference,
     "context_precision_without_reference": ContextPrecisionWithoutReference,
 }
@@ -166,6 +170,17 @@ def cases():
             inputs = {"user_input": "question", field: answer, "retrieved_contexts": passages}
             yield metric_id, name, inputs, [{"reason": "fixture", "verdict": v} for v in flags], {}
 
+    for name, passages, flags in (
+        ("mixed_attribution", ["first", "second", "first"], [1, 0, 1]),
+        ("unsupported", ["first", "second", "first"], [0, 0]),
+        ("no_classifications", ["first", "second", "first"], []),
+        ("empty_passages", [], []),
+        ("empty_passage_text", [""], [1]),
+    ):
+        inputs = {"user_input": "question", "reference": "gold", "retrieved_contexts": passages}
+        items = [{"statement": "same statement", "reason": "fixture", "attributed": flag} for flag in flags]
+        yield "context_recall", name, inputs, [{"classifications": items}] if passages else [], {}
+
 
 async def legacy_score(metric_id, inputs, replies, vectors, judge, calls):
     if metric_id in ID_METRICS:
@@ -186,6 +201,7 @@ async def generate(source_root):
         *ID_METRICS.values(),
         *CONTEXT_METRICS.values(),
         ContextPrecisionPrompt,
+        ContextRecallPrompt,
         Faithfulness,
         AnswerRelevancy,
         StatementGeneratorPrompt,

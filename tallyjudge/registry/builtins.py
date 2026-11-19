@@ -45,6 +45,13 @@ BUILTINS = (
         dependencies={"llm": "language_model"},
     ),
     PluginSpec(
+        "metric.rag.context_recall",
+        "metric",
+        1,
+        "tallyjudge.plugins.metrics.rag.context_recall:ContextRecallMetric",
+        dependencies={"llm": "language_model"},
+    ),
+    PluginSpec(
         "metric.text.string_similarity",
         "metric",
         1,
