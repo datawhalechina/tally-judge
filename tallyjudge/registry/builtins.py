@@ -46,4 +46,31 @@ BUILTINS = (
         config_type="tallyjudge.plugins.embeddings.openai_compatible:EmbeddingConfig",
         dependencies={"client": "client"},
     ),
+    PluginSpec(
+        "storage.local.memory",
+        "storage",
+        1,
+        "tallyjudge.plugins.storage.memory:MemoryStorageBackend",
+    ),
+    PluginSpec(
+        "storage.local.jsonl",
+        "storage",
+        1,
+        "tallyjudge.plugins.storage.jsonl:JsonlStorageBackend",
+        config_type="tallyjudge.plugins._local:DirectoryConfig",
+    ),
+    PluginSpec(
+        "event.local.jsonl",
+        "event",
+        1,
+        "tallyjudge.plugins.tracing.jsonl:JsonlEventSink",
+        config_type="tallyjudge.plugins._local:DirectoryConfig",
+    ),
+    PluginSpec(
+        "cache.local.sqlite",
+        "cache",
+        1,
+        "tallyjudge.plugins.cache.sqlite:SqliteScoreCache",
+        config_type="tallyjudge.plugins.cache.sqlite:SqliteCacheConfig",
+    ),
 )

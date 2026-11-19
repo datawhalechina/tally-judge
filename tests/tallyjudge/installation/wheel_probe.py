@@ -2,7 +2,10 @@
 
 import asyncio
 import json
+import os
+import subprocess
 import sys
+import tempfile
 from importlib import metadata
 from pathlib import Path
 from types import SimpleNamespace
@@ -100,7 +103,14 @@ async def check_rag():
 def check_installation():
     assert sys.version_info >= (3, 12)
     assert Path(tallyjudge.__file__).with_name("py.typed").is_file()
-    assert len(registry.list()) == 6
+    assert {p.kind for p in registry.list()} == {
+        "metric",
+        "model",
+        "embedding",
+        "storage",
+        "event",
+        "cache",
+    }
     assert not any(name.startswith("tallyjudge.plugins.") for name in sys.modules)
     metrics = [
         create_metric(item.id)
@@ -116,7 +126,7 @@ def check_installation():
     result = Evaluator(metrics).run(dataset)
     assert len(result.rows) == 2
     assert all(item["mean"] == 0.5 for item in result.summary.values())
-    assert json.loads(result.to_json())["schema_version"] == 1
+    assert json.loads(result.to_json())["schema_version"] == 2
     assert result.run_status == "completed" and result.stop_reason is None
     asyncio.run(check_rag())
     assert not {
@@ -159,4 +169,30 @@ if __name__ == "__main__":
             "scikit-network",
             "pytest",
         }.intersection(installed)
-        print("Wheel installation verified:", module)
+        executable = Path(sys.executable).with_name(
+            "tallyjudge.exe" if os.name == "nt" else "tallyjudge"
+        )
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as directory:
+            root = Path(directory)
+            sample = {"case_id": "one", "response": "match", "reference": "match"}
+            source = root / "rows.jsonl"
+            source.write_text(json.dumps(sample) + "\n", encoding="utf-8")
+            key = "metric.text.exact_match"
+
+            def cli(*args):
+                output = subprocess.check_output(
+                    [str(executable), *map(str, args)], text=True
+                )
+                return json.loads(output)
+
+            assert key in [metric["id"] for metric in cli("metrics", "list")]
+            saved = cli("run", "--input", source, "--metric", key, "--store", root)
+            restored = cli("runs", "show", saved["run_id"], "--store", root)
+            expected = (
+                Evaluator([create_metric(key)])
+                .run(Dataset.from_records([sample]))
+                .to_dict()
+            )
+            for field in ("rows", "manifest", "metrics", "summary", "inputs"):
+                assert restored[field] == expected[field]
+        print("Wheel installation and CLI verified:", module)

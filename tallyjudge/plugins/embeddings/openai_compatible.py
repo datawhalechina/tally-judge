@@ -7,7 +7,7 @@ from typing import Any, Literal
 from pydantic import Field
 
 from tallyjudge.core.errors import ModelOutputError
-from tallyjudge.core.usage import RequestRecord, UsageSummary
+from tallyjudge.core.usage import RequestCall, UsageSummary
 from tallyjudge.interfaces.models import EmbeddingResult
 from tallyjudge.plugins._openai_compatible import ClientConfig, ClientTransport
 
@@ -59,7 +59,7 @@ class OpenAICompatibleEmbeddingModel:
         ):
             raise TypeError("Expected a sequence of texts")
         vectors: list[list[float]] = []
-        records: list[RequestRecord] = []
+        records = RequestCall()
         model = None
         config = self.config
         params = config.model_dump(include={"model", "dimensions"}, exclude_none=True)
@@ -75,4 +75,6 @@ class OpenAICompatibleEmbeddingModel:
                 )
             )
             model = getattr(response, "model", None)
-        return EmbeddingResult(vectors, UsageSummary.from_records(records), model)
+        return EmbeddingResult(
+            vectors, UsageSummary.from_records(records), model, records.call_id
+        )

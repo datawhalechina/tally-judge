@@ -22,7 +22,9 @@ def test_lazy_list_describe_and_construct_in_fresh_process():
     code = """
 import sys
 from tallyjudge.registry import registry
-assert len(registry.list()) == 6
+assert {spec.id for spec in registry.list(kind='storage')} == {'storage.local.memory', 'storage.local.jsonl'}
+assert {spec.id for spec in registry.list(kind='cache')} == {'cache.local.sqlite'}
+assert {spec.id for spec in registry.list(kind='event')} == {'event.local.jsonl'}
 assert not any(name.startswith('tallyjudge.plugins.') for name in sys.modules)
 for plugin in registry.list(kind='metric'):
     assert registry.describe(plugin.id).id == plugin.id

@@ -1,35 +1,32 @@
 """Bounded scheduling, independent deadlines and bounded cancellation cleanup."""
 
 import asyncio
-import json
+import copy
 import logging
-import math
+from collections import deque
 from collections.abc import Callable, Coroutine, Sequence
-from dataclasses import asdict, dataclass, field, replace
+from dataclasses import asdict
 from typing import Any
 from uuid import uuid4
 
 from tallyjudge.core.config import ExecutionConfig
-from tallyjudge.core.dataset import Dataset, canonical_json
-from tallyjudge.core.errors import (
-    EvaluationAborted,
-    InputValidationError,
-    ModelError,
-    ModelOutputError,
-    UndefinedScore,
-)
+from tallyjudge.core.dataset import Dataset
+from tallyjudge.core.errors import EvaluationAborted, RunSaveError
+from tallyjudge.core.events import RunEvents
+from tallyjudge.core.jobs import ExperimentJob, Job, MetricJob, RowFunction
 from tallyjudge.core.results import (
     CleanupWarning,
-    ErrorInfo,
-    MetricResult,
     RowResult,
+    RowTaskResult,
     RunCollector,
     RunResult,
     RunStatus,
     ScoreResult,
 )
-from tallyjudge.core.usage import UsageScope, UsageScopeClosed
+from tallyjudge.interfaces.cache import ScoreCache
+from tallyjudge.interfaces.events import EventSink
 from tallyjudge.interfaces.metrics import MetricBinding
+from tallyjudge.interfaces.storage import StorageBackend
 
 logger = logging.getLogger(__name__)
 
@@ -107,114 +104,6 @@ def run_sync[T](
         detached.clear()
 
 
-def validate_output(output: Any, binding: MetricBinding) -> ScoreResult:
-    if not isinstance(output, MetricResult) or not isinstance(output.value, float):
-        return ScoreResult("invalid_output", error=ErrorInfo("invalid_output"))
-    value = float(output.value)
-    low, high = binding.metric.spec.value_range
-    if (
-        not math.isfinite(value)
-        or (low is not None and value < low)
-        or (high is not None and value > high)
-    ):
-        return ScoreResult("invalid_output", error=ErrorInfo("invalid_output"))
-    if output.reason is not None and not isinstance(output.reason, str):
-        return ScoreResult("invalid_output", error=ErrorInfo("invalid_output"))
-    return ScoreResult("success", value, output.reason)
-
-
-@dataclass
-class _Job:
-    row: RowResult
-    binding: MetricBinding
-    deadline: float | None
-    finished_at: float | None = None
-    usage: UsageScope = field(default_factory=UsageScope)
-
-    def record(self, outcome: ScoreResult) -> None:
-        self.row.metrics[self.binding.key] = replace(outcome, usage=self.usage.seal())
-
-    def mark_cancelled(self) -> None:
-        if self.row.metrics[self.binding.key].status == "running":
-            self.record(ScoreResult("cancelled"))
-
-    async def score(self, record: dict[str, Any]) -> ScoreResult:
-        clock = asyncio.get_running_loop().time
-        self.row.metrics[self.binding.key] = ScoreResult("running")
-        try:
-            output = await self.binding.ascore_row(record)
-            return validate_output(output, self.binding)
-        except InputValidationError as exc:
-            logger.warning(
-                "Metric input validation failed: plugin=%s binding=%s input_index=%d",
-                self.binding.metric.spec.id,
-                self.binding.key,
-                self.row.input_index,
-            )
-            logger.debug("Metric input validation details", exc_info=True)
-            return ScoreResult(
-                "error",
-                error=ErrorInfo(
-                    "validation_error", field=exc.field, expected=exc.expected
-                ),
-            )
-        except UndefinedScore as exc:
-            return ScoreResult(
-                "undefined", error=ErrorInfo("undefined_score", code=exc.code)
-            )
-        except (ModelError, ModelOutputError) as exc:
-            logger.exception(
-                "Model scoring failed: plugin=%s binding=%s input_index=%d",
-                self.binding.metric.spec.id,
-                self.binding.key,
-                self.row.input_index,
-            )
-            if isinstance(exc, ModelOutputError):
-                return ScoreResult(
-                    "error", error=ErrorInfo("model_output_error", code=exc.code)
-                )
-            return ScoreResult(
-                "error",
-                error=ErrorInfo("model_error", type(exc.__cause__ or exc).__name__),
-            )
-        except UsageScopeClosed:
-            raise
-        except Exception as exc:
-            logger.exception(
-                "Metric execution failed: plugin=%s binding=%s input_index=%d",
-                self.binding.metric.spec.id,
-                self.binding.key,
-                self.row.input_index,
-            )
-            return ScoreResult(
-                "error", error=ErrorInfo("metric_error", type(exc).__name__)
-            )
-        finally:
-            self.finished_at = clock()
-
-    def finish(self, task: asyncio.Task[ScoreResult]) -> None:
-        if task.cancelled():
-            self.mark_cancelled()
-            return
-        try:
-            outcome = task.result()
-        except BaseException as exc:
-            # A failing worker (including its diagnostics) still owes its row a terminal state.
-            self.record(
-                ScoreResult(
-                    "error", error=ErrorInfo("internal_error", type(exc).__name__)
-                )
-            )
-            raise
-        if (
-            self.deadline is not None
-            and self.finished_at is not None
-            and self.finished_at > self.deadline
-        ):
-            outcome = ScoreResult("timeout", error=ErrorInfo("timeout"))
-        self.record(outcome)
-
-
 class TaskRunner:
     async def arun(
         self,
@@ -222,18 +111,14 @@ class TaskRunner:
         bindings: Sequence[MetricBinding],
         config: ExecutionConfig,
         collector: RunCollector,
+        *,
+        row_function: RowFunction | None = None,
+        backend: StorageBackend | None = None,
+        include_inputs: bool = True,
+        event_sink: EventSink | None = None,
+        cache: ScoreCache | None = None,
     ) -> RunResult:
-        metadata = {}
-        for binding in bindings:
-            snapshot = binding.metric.config_snapshot()
-            if not isinstance(snapshot, dict):
-                raise ValueError("Metric config_snapshot must return a JSON object")
-            metadata[binding.key] = {
-                "id": binding.metric.spec.id,
-                "revision": binding.metric.spec.revision,
-                "input_map": dict(binding.input_map),
-                "config_snapshot": json.loads(canonical_json(snapshot)),
-            }
+        metadata = {binding.key: binding.snapshot() for binding in bindings}
         manifest = dataset.manifest
         result = RunResult(
             str(uuid4()),
@@ -245,6 +130,7 @@ class TaskRunner:
                     item["case_id"],
                     item["input_index"],
                     {key: ScoreResult("not_started") for key in metadata},
+                    RowTaskResult("not_started") if row_function is not None else None,
                 )
                 for item in manifest
             ],
@@ -252,27 +138,38 @@ class TaskRunner:
         )
         collector._start(result)
         loop = asyncio.get_running_loop()
-        active: dict[asyncio.Task[ScoreResult], _Job] = {}
-        cleaning: dict[asyncio.Task[ScoreResult], tuple[_Job, float]] = {}
-        jobs = ((row, binding) for row in result.rows for binding in bindings)
+        events = RunEvents(result.run_id, event_sink)
+        events.emit("run_started", status="running")
+        active: dict[asyncio.Task[Any], Job[Any]] = {}
+        cleaning: dict[asyncio.Task[Any], tuple[Job[Any], float]] = {}
+        # Prefer ready metrics so completed experiments do not accumulate a second work queue.
+        steps = (row_function,) if row_function is not None else bindings
+        initial = ((row, step) for row in result.rows for step in steps)
+        ready: deque[tuple[RowResult, MetricBinding]] = deque()
 
         def fill() -> None:
             while len(active) < config.max_concurrency:
-                item = next(jobs, None)
+                item = ready.popleft() if ready else next(initial, None)
                 if item is None:
                     break
-                row, binding = item
+                row, step = item
                 deadline = (
                     None if config.timeout is None else loop.time() + config.timeout
                 )
-                job = _Job(row, binding, deadline)
-                with job.usage.activate():
-                    task = asyncio.create_task(
-                        job.score(dataset.record(row.input_index))
+                record = dataset.record(row.input_index)
+                if isinstance(step, MetricBinding):
+                    if row.task is not None and row.task.output is not None:
+                        record.update(copy.deepcopy(row.task.output))
+                    job = MetricJob(
+                        row, deadline, events, step, metadata[step.key], cache
                     )
+                else:
+                    job = ExperimentJob(row, deadline, events, step)
+                with job.usage.activate():
+                    task = asyncio.create_task(job.run(record))
                 active[task] = job
 
-        def cancel(task: asyncio.Task[ScoreResult], until: float) -> None:
+        def cancel(task: asyncio.Task[Any], until: float) -> None:
             # Moving the task seals its row. Late completion only drains its exception.
             cleaning[task] = (active.pop(task), until)
             task.cancel()
@@ -290,7 +187,7 @@ class TaskRunner:
                 cleaning[task] = (job, until)
             for task, job in tuple(active.items()):
                 if not task.done():
-                    job.mark_cancelled()
+                    job.cancel()
                     cancel(task, until)
 
         error: BaseException | None = None
@@ -324,18 +221,15 @@ class TaskRunner:
                             _consume(task)
                         else:
                             job = active.pop(task)
-                            job.finish(task)
-                            failed |= job.row.metrics[job.binding.key].status in (
-                                "error",
-                                "timeout",
-                            )
+                            status = job.finish(task)
+                            if isinstance(job, ExperimentJob) and status == "success":
+                                ready.extend((job.row, binding) for binding in bindings)
+                            failed |= status in ("error", "timeout")
 
                     now = loop.time()
                     for task, job in tuple(active.items()):
                         if job.deadline is not None and job.deadline <= now:
-                            job.record(
-                                ScoreResult("timeout", error=ErrorInfo("timeout"))
-                            )
+                            job.timeout()
                             cancel(task, now + config.cleanup_timeout)
                             failed = True
 
@@ -351,13 +245,12 @@ class TaskRunner:
                                 CleanupWarning(
                                     job.row.case_id,
                                     job.row.input_index,
-                                    job.binding.key,
+                                    job.key,
                                 )
                             )
                             logger.warning(
-                                "Metric did not finish within cleanup_timeout: plugin=%s binding=%s input_index=%d",
-                                job.binding.metric.spec.id,
-                                job.binding.key,
+                                "Task did not finish within cleanup_timeout: binding=%s input_index=%d",
+                                job.key,
                                 job.row.input_index,
                             )
                 except asyncio.CancelledError as exc:
@@ -370,6 +263,15 @@ class TaskRunner:
                         stop("aborted", "internal_error")
 
             result.run_status, result.stop_reason = stopping or ("completed", None)
+            events.emit("run_finished", status=result.run_status)
+            result.events_complete = events.complete
+            if backend is not None:
+                try:
+                    result.save(backend=backend, include_inputs=include_inputs)
+                except Exception as exc:
+                    if error is None and result.run_status != "aborted":
+                        raise RunSaveError(collector.snapshot()) from exc
+                    logger.exception("Saving partial run %s failed", result.run_id)
             if error is not None:
                 raise error
             if result.run_status == "aborted":
