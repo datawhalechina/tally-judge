@@ -17,8 +17,8 @@ jobs:
           fetch-depth: 0
       - uses: astral-sh/setup-uv@v6
         with:
-          python-version: "3.11"
-      - run: uv build --all-packages --out-dir dist
+          python-version: "3.12"
+      - run: uv build --out-dir dist
       - name: Upload release assets
         env:
           GH_TOKEN: ${{ github.token }}

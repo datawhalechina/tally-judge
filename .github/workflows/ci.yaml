@@ -2,103 +2,56 @@ name: CI
 
 on:
   pull_request:
+    paths:
+      - tallyjudge/**
+      - tests/tallyjudge/**
+      - pyproject.toml
+      - .python-version
+      - .github/workflows/ci.yaml
 
 permissions:
   contents: read
-  pull-requests: read
-
-defaults:
-  run:
-    shell: bash
 
 jobs:
-  diff:
-    runs-on: ubuntu-latest
-    outputs:
-      ragas: ${{ steps.filter.outputs.ragas }}
-    steps:
-      - uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          filters: |
-            ragas:
-              - .github/workflows/ci.yaml
-              - pyproject.toml
-              - Makefile
-              - "src/ragas/**"
-              - "tests/**"
-              - "examples/**"
-
-  unit_tests:
-    needs: diff
-
+  test:
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
-            python-version: "3.9"
-            test-type: "full"
+            python: "3.12"
           - os: ubuntu-latest
-            python-version: "3.12"
-            test-type: "full"
-          - os: ubuntu-latest
-            python-version: "3.13"
-            test-type: "full"
-          - os: macos-latest
-            python-version: "3.11"
-            test-type: "essential"
+            python: "3.13"
           - os: windows-latest
-            python-version: "3.10"
-            test-type: "essential"
-
-    if: needs.diff.outputs.ragas == 'true'
-    name: python${{ matrix.python-version }}_unit_tests (${{ matrix.os }}, ${{ matrix.test-type }})
+            python: "3.12"
+          - os: macos-latest
+            python: "3.12"
     runs-on: ${{ matrix.os }}
-
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
       - uses: astral-sh/setup-uv@v6
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: ${{ matrix.python }}
           enable-cache: true
-          cache-dependency-glob: "**/pyproject.toml"
+      - run: uv sync --python ${{ matrix.python }}
+      - run: uv run --no-sync pytest
+      - run: uv run --no-sync ruff check tallyjudge tests/tallyjudge
+      - run: uv run --no-sync ruff format --check tallyjudge tests/tallyjudge
+      - run: uv run --no-sync pyright
+      - run: uv build
+      - name: Verify wheel outside the checkout
+        run: uv run --no-sync python tests/tallyjudge/installation/test_installation.py --wheel-dir dist
 
-      - run: make install-minimal
-
-      - name: Run unit tests
-        run: |
-          if [ "${{ matrix.os }}" != 'windows-latest' ]; then
-            OPTS=(--dist loadfile -n auto)
-          fi
-
-          if [ "${{ matrix.test-type }}" = "full" ]; then
-            uv run pytest --nbmake tests/unit "${OPTS[@]}"
-          else
-            uv run pytest tests/unit -k "not slow" "${OPTS[@]}"
-          fi
-        env:
-          __RAGAS_DEBUG_TRACKING: "true"
-          RAGAS_DO_NOT_TRACK: "true"
-
-  code_quality_check:
+  model-integration:
     runs-on: ubuntu-latest
-    needs: diff
-
-    if: needs.diff.outputs.ragas == 'true'
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: astral-sh/setup-uv@v6
         with:
-          python-version: "3.11"
+          python-version: "3.12"
           enable-cache: true
-          cache-dependency-glob: "**/pyproject.toml"
-
-      - run: make install-minimal
-
-      - run: make run-ci-format-check type
+      - run: uv sync --group integration
+      - run: uv run --no-sync python -c "import openai, httpx"
+      - run: uv run --no-sync pytest tests/tallyjudge/integration tests/tallyjudge/migration

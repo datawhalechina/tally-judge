@@ -36,7 +36,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - name: Install documentation dependencies
         run: |
-          uv venv --python 3.11 .venv-docs
+          uv venv --python 3.12 .venv-docs
           uv pip install --python .venv-docs --group docs
       - name: Build documentation
         run: npm run docs:build

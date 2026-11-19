@@ -206,3 +206,19 @@ plan
 
 # MkDocs build output
 /site/
+
+# Generated version for the new package
+tallyjudge/_version.py
+!/.python-version
+
+# Version the public design documents linked from README
+!/plan/
+/plan/*
+!/plan/plugin-architecture.zh-CN.md
+!/plan/roadmap.zh-CN.md
+!/plan/phase-1.zh-CN.md
+!/plan/phase-2.zh-CN.md
+!/plan/phase-3.zh-CN.md
+!/plan/phase-4.zh-CN.md
+
+!/plan/implementation-standards.zh-CN.md
