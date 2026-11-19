@@ -22,11 +22,12 @@ def test_lazy_list_describe_and_construct_in_fresh_process():
     code = """
 import sys
 from tallyjudge.registry import registry
-assert len(registry.list()) == 2
+assert len(registry.list()) == 6
 assert not any(name.startswith('tallyjudge.plugins.') for name in sys.modules)
-for plugin in registry.list():
+for plugin in registry.list(kind='metric'):
     assert registry.describe(plugin.id).id == plugin.id
-    assert registry.create(plugin.id).spec.id == plugin.id
+    if not plugin.dependencies:
+        assert registry.create(plugin.id).spec.id == plugin.id
 assert not {'ragas', 'langchain', 'langchain_core', 'openai', 'instructor', 'PIL', 'networkx', 'sknetwork'}.intersection(sys.modules)
 """
     process = subprocess.run(
@@ -42,8 +43,8 @@ def test_registry_failures_and_explicit_replace():
     with pytest.raises(PluginError, match="already registered"):
         registry.register(BUILTINS[0])
     registry.register(BUILTINS[0], replace=True)
-    assert len(registry.list(kind="metric")) == 2
-    assert registry.list(kind="model") == ()
+    assert len(registry.list(kind="metric")) == 4
+    assert len(registry.list(kind="model")) == 1
     with pytest.raises(PluginError, match="configuration"):
         registry.create(BUILTINS[0].id, model="unexpected")
     registry.register(PluginSpec("wrong", "metric", 1, ExactMatchMetric))

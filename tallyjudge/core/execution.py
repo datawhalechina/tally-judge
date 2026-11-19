@@ -5,13 +5,19 @@ import json
 import logging
 import math
 from collections.abc import Callable, Coroutine, Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field, replace
 from typing import Any
 from uuid import uuid4
 
 from tallyjudge.core.config import ExecutionConfig
 from tallyjudge.core.dataset import Dataset, canonical_json
-from tallyjudge.core.errors import EvaluationAborted, InputValidationError
+from tallyjudge.core.errors import (
+    EvaluationAborted,
+    InputValidationError,
+    ModelError,
+    ModelOutputError,
+    UndefinedScore,
+)
 from tallyjudge.core.results import (
     CleanupWarning,
     ErrorInfo,
@@ -22,6 +28,7 @@ from tallyjudge.core.results import (
     RunStatus,
     ScoreResult,
 )
+from tallyjudge.core.usage import UsageScope, UsageScopeClosed
 from tallyjudge.interfaces.metrics import MetricBinding
 
 logger = logging.getLogger(__name__)
@@ -122,9 +129,10 @@ class _Job:
     binding: MetricBinding
     deadline: float | None
     finished_at: float | None = None
+    usage: UsageScope = field(default_factory=UsageScope)
 
     def record(self, outcome: ScoreResult) -> None:
-        self.row.metrics[self.binding.key] = outcome
+        self.row.metrics[self.binding.key] = replace(outcome, usage=self.usage.seal())
 
     def mark_cancelled(self) -> None:
         if self.row.metrics[self.binding.key].status == "running":
@@ -132,7 +140,7 @@ class _Job:
 
     async def score(self, record: dict[str, Any]) -> ScoreResult:
         clock = asyncio.get_running_loop().time
-        self.record(ScoreResult("running"))
+        self.row.metrics[self.binding.key] = ScoreResult("running")
         try:
             output = await self.binding.ascore_row(record)
             return validate_output(output, self.binding)
@@ -150,6 +158,27 @@ class _Job:
                     "validation_error", field=exc.field, expected=exc.expected
                 ),
             )
+        except UndefinedScore as exc:
+            return ScoreResult(
+                "undefined", error=ErrorInfo("undefined_score", code=exc.code)
+            )
+        except (ModelError, ModelOutputError) as exc:
+            logger.exception(
+                "Model scoring failed: plugin=%s binding=%s input_index=%d",
+                self.binding.metric.spec.id,
+                self.binding.key,
+                self.row.input_index,
+            )
+            if isinstance(exc, ModelOutputError):
+                return ScoreResult(
+                    "error", error=ErrorInfo("model_output_error", code=exc.code)
+                )
+            return ScoreResult(
+                "error",
+                error=ErrorInfo("model_error", type(exc.__cause__ or exc).__name__),
+            )
+        except UsageScopeClosed:
+            raise
         except Exception as exc:
             logger.exception(
                 "Metric execution failed: plugin=%s binding=%s input_index=%d",
@@ -237,7 +266,10 @@ class TaskRunner:
                     None if config.timeout is None else loop.time() + config.timeout
                 )
                 job = _Job(row, binding, deadline)
-                task = asyncio.create_task(job.score(dataset.record(row.input_index)))
+                with job.usage.activate():
+                    task = asyncio.create_task(
+                        job.score(dataset.record(row.input_index))
+                    )
                 active[task] = job
 
         def cancel(task: asyncio.Task[ScoreResult], until: float) -> None:

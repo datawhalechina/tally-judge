@@ -12,39 +12,15 @@ import sys
 import tempfile
 from pathlib import Path
 
-PROBE = """
-import importlib.metadata as metadata
-import json
-import sys
-from pathlib import Path
-import tallyjudge
-from tallyjudge import Dataset, Evaluator, MetricBinding, create_metric
-from tallyjudge.registry import registry
-assert sys.version_info >= (3, 12)
-assert Path(tallyjudge.__file__).with_name('py.typed').is_file()
-assert len(registry.list()) == 2
-assert not any(name.startswith('tallyjudge.plugins.') for name in sys.modules)
-metrics = [create_metric(item.id) for item in registry.list()]
-result = Evaluator(metrics).run(Dataset.from_records([{'response': 'cat', 'reference': 'cat'}, {'response': 'dog', 'reference': 'cat'}]))
-assert len(result.rows) == 2
-assert all(item['mean'] == 0.5 for item in result.summary.values())
-assert json.loads(result.to_json())['schema_version'] == 1
-assert result.run_status == 'completed' and result.stop_reason is None
-assert not {'ragas', 'langchain', 'langchain_core', 'openai', 'instructor', 'datasets', 'PIL', 'networkx', 'sknetwork'}.intersection(sys.modules)
-if len(sys.argv) > 1:
-    checkout = Path(sys.argv[1]).resolve()
-    assert not Path(tallyjudge.__file__).resolve().is_relative_to(checkout)
-    assert not Path.cwd().resolve().is_relative_to(checkout)
-    installed = {item.metadata['Name'].lower().replace('_', '-') for item in metadata.distributions()}
-    assert not {'ragas', 'langchain', 'langchain-core', 'openai', 'instructor', 'datasets', 'pillow', 'networkx', 'scikit-network', 'pytest'}.intersection(installed)
-    assert Path(tallyjudge.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
-    print('Wheel installation verified:', tallyjudge.__file__)
-"""
+PROBE = Path(__file__).with_name("wheel_probe.py")
 
 
 def test_import_is_independent_of_legacy_and_provider_packages():
     process = subprocess.run(
-        [sys.executable, "-c", PROBE], check=False, capture_output=True, text=True
+        [sys.executable, "-c", PROBE.read_text(encoding="utf-8")],
+        check=False,
+        capture_output=True,
+        text=True,
     )
     assert process.returncode == 0, process.stdout + process.stderr
 
@@ -76,7 +52,7 @@ def verify_wheel(wheel_dir: Path) -> None:
             check=True,
         )
         subprocess.run(
-            [str(python), "-I", "-c", PROBE, str(checkout)],
+            [str(python), "-I", str(PROBE), str(checkout)],
             cwd=directory,
             env=env,
             check=True,

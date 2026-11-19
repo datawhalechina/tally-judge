@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
 from tallyjudge.core.aggregation import aggregate
+from tallyjudge.core.usage import ScoreUsage
 
 Status = Literal[
     "not_started",
@@ -13,6 +14,7 @@ Status = Literal[
     "success",
     "error",
     "invalid_output",
+    "undefined",
     "timeout",
     "cancelled",
 ]
@@ -31,6 +33,7 @@ class ErrorInfo:
     exception_type: str | None = None
     field: str | None = None
     expected: str | None = None
+    code: str | None = None
 
 
 @dataclass(frozen=True)
@@ -39,6 +42,7 @@ class ScoreResult:
     value: float | None = None
     reason: str | None = None
     error: ErrorInfo | None = None
+    usage: ScoreUsage | None = None
 
 
 @dataclass

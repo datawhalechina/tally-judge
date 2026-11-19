@@ -29,3 +29,23 @@ class EvaluationAborted(RuntimeError):
             "Evaluation stopped after an error or timeout; see partial_result"
         )
         self.partial_result = partial_result
+
+
+class ModelError(RuntimeError):
+    """A model transport failed. The provider exception is retained as the cause."""
+
+
+class ModelOutputError(ValueError):
+    """A model response cannot satisfy the requested output contract."""
+
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
+class UndefinedScore(ValueError):
+    """The metric ran but its mathematical result is undefined."""
+
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
