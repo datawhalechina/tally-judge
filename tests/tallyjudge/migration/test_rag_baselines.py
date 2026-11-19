@@ -26,6 +26,34 @@ RELEVANCE = "metric.rag.answer_relevance"
 # Upstream SHA-256 pairs: exact prompt bytes on Pydantic 2.14.3, then the same
 # prompt with only the JSON Schema's key order and insignificant whitespace normalized.
 PROMPTS = {
+    "ac_answer": (
+        "9cb8e616cefd81009b5f7dbe12a1b55547a610ccf281c2bd4176bba3eac36332",
+        "cbebcbdf146a10df029c8d35dec3cc0060312a36e0d671fd93febb46d431d974",
+    ),
+    "ac_reference": (
+        "47ea6f39a6736ae00bf904d85df8d5cb9af7d8778b8d030b0382752d0fa74788",
+        "c8e14ac93f910bd7d71fb358dfa80a8e8635ae5fdf1442982ed36228c1f208a7",
+    ),
+    "ac_classify_weighted": (
+        "a0aa6cac4a30e4d7aa65725809630ea385797c5dc5baa614464d01c2fea8aa1d",
+        "521e5147d86b5a0e6f01d984cf1345b5235da37302449ed19e54578f247be929",
+    ),
+    "ac_classify_answer_only": (
+        "1367488fbeaec70d90b8cdb6e3d4f5ebc92522e28f23ebc54fe7ea95925bbff8",
+        "90774a54e438569f6d87cb06e4986e6f8c2c0b7490c0646a306f0325eab40220",
+    ),
+    "ac_classify_reference_only": (
+        "f6a5d2b7405d0939bb0b7d8c1dcbf9d0cacf8af70610f9b7c1b163851dff93be",
+        "d2dca023647ba1b525b8809b8190dba4d1b81c2711c16b93742a35058935dc99",
+    ),
+    "ac_classify_no_classified_statements": (
+        "de9de65edc9ca6d71183112c9fe2d21efabbfc6cb5a8fe10472594b39165d701",
+        "a06cf0ee8174992a1063b3d4157b3539db4360ad789fccd3c0631355a2f9102f",
+    ),
+    "ac_empty_answer": (
+        "09e49f9ae48d49227cde30d1f62672b07348712e6e8d91bc81460ce355aa5e57",
+        "6303c6e98222a6587bb38b30b36752e066251a1b81b2ed8a5506c80a5dbb3a66",
+    ),
     "recall_ranked": (
         "a854e51d2f589314f20b8589094d7029dfb54bab612b782da87b8ced68a28959",
         "53043749ce08fe56c5ffa15c31ca75caf238da1ed75554e59ab85cc1fe8e097e",
@@ -222,6 +250,140 @@ async def test_archived_semantic_similarity(response, threshold, expected, clien
         == 2
     )
     assert_calls(client, [], [["X"], [response or " "]])
+
+
+# The classifier is called when either extracted side has statements.
+MIXED = (["A", "B"], ["A", "C", "D"], (1, 1, 2), "ac_classify_weighted")
+ANSWER_ONLY = (["B"], [], (0, 1, 0), "ac_classify_answer_only")
+REFERENCE_ONLY = ([], ["C"], (0, 0, 1), "ac_classify_reference_only")
+EMPTY = ([], [], None, None)
+UNCLASSIFIED = (["A"], ["B"], (0, 0, 0), "ac_classify_no_classified_statements")
+
+
+@pytest.mark.parametrize(
+    "statements,weights,beta,expected,response,zero_vector",
+    [
+        pytest.param(MIXED, (0.75, 0.25), 1.0, 0.05, "observed", False, id="weighted"),
+        pytest.param(MIXED, (2, 0), 2.0, 5 / 14, "observed", False, id="beta-two"),
+        pytest.param(MIXED, (3, 1), 1.0, 0.05, "observed", False, id="scaled-weights"),
+        pytest.param(
+            ANSWER_ONLY, (1, 0), 1.0, 0.0, "observed", False, id="answer-only"
+        ),
+        pytest.param(
+            REFERENCE_ONLY, (1, 0), 1.0, 0.0, "observed", False, id="reference-only"
+        ),
+        pytest.param(
+            ANSWER_ONLY,
+            (0.75, 0.25),
+            1.0,
+            -0.25,
+            "observed",
+            False,
+            id="negative-total",
+        ),
+        pytest.param(EMPTY, (1, 0), 1.0, 1.0, "observed", False, id="empty-factual"),
+        pytest.param(
+            EMPTY, (0.75, 0.25), 1.0, 0.5, "observed", False, id="empty-weighted"
+        ),
+        pytest.param(
+            UNCLASSIFIED,
+            (0.75, 0.25),
+            1.0,
+            "no_classified_statements",
+            "observed",
+            False,
+            id="empty-classification",
+        ),
+        pytest.param(
+            REFERENCE_ONLY,
+            (1, 0),
+            0.0,
+            "no_predicted_statements",
+            "observed",
+            False,
+            id="no-predictions",
+        ),
+        pytest.param(ANSWER_ONLY, (1, 0), 0.0, 0.0, "observed", False, id="beta-zero"),
+        pytest.param(
+            MIXED,
+            (0.75, 0.25),
+            1.0,
+            "zero_norm_embedding",
+            "observed",
+            True,
+            id="zero-vector",
+        ),
+        pytest.param(MIXED, (0, 1), 1.0, -1.0, "observed", False, id="only-similarity"),
+        pytest.param(
+            REFERENCE_ONLY, (0.75, 0.25), 1.0, -0.25, "", False, id="raw-empty-response"
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_archived_answer_correctness(
+    statements, weights, beta, expected, response, zero_vector, client, judge
+):
+    answer, truth, counts, classifier = statements
+    prompts = ["ac_answer" if response else "ac_empty_answer", "ac_reference"]
+    for extracted in (answer, truth):
+        client.chat_reply(json.dumps({"statements": extracted}))
+    if counts is not None:
+        item = {"statement": "item", "reason": "fixture"}
+        client.chat_reply(
+            json.dumps(
+                {
+                    name: [item] * count
+                    for name, count in zip(("TP", "FP", "FN"), counts, strict=True)
+                }
+            )
+        )
+        prompts.append(classifier)
+    embedding_batches = []
+    dependencies = {"llm": judge}
+    if weights[1]:
+        dependencies["embeddings"] = create_embedding_model(
+            "embedding.openai_compatible.embeddings", client=client, model="fixture"
+        )
+        if expected != "no_classified_statements":
+            embedding_batches = [[response], ["gold"]]
+            client.embedding_reply([(0, [0.0, 0.0] if zero_vector else [-1.0, 0.0])])
+            client.embedding_reply([(0, [1.0, 0.0])])
+    metric = create_metric(
+        "metric.rag.answer_correctness", weights=weights, beta=beta, **dependencies
+    )
+    score = await evaluate(
+        metric, {"user_input": "question", "response": response, "reference": "gold"}
+    )
+    if isinstance(expected, str):
+        assert (score.status, score.value, score.error.code) == (
+            "undefined",
+            None,
+            expected,
+        )
+    else:
+        assert score.status == "success" and score.value == pytest.approx(
+            expected, rel=0.0, abs=1e-12
+        )
+    assert score.usage.generation.requests == len(prompts)
+    assert (score.usage.embedding.requests if score.usage.embedding else 0) == len(
+        embedding_batches
+    )
+    assert_calls(client, prompts, embedding_batches)
+
+
+@pytest.mark.asyncio
+async def test_correctness_reports_second_extraction_failure_and_usage(client, judge):
+    client.chat_reply('{"statements":["A"]}')
+    client.chat_reply("broken JSON")
+    metric = create_metric(
+        "metric.rag.answer_correctness", llm=judge, weights=[1.0, 0.0]
+    )
+    score = await evaluate(
+        metric, {"user_input": "question", "response": "observed", "reference": "gold"}
+    )
+    assert (score.status, score.error.category) == ("error", "model_output_error")
+    assert score.usage.generation.requests == 2
+    assert_calls(client, ["ac_answer", "ac_reference"])
 
 
 def assert_prompt(text, name):

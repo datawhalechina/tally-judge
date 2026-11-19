@@ -61,6 +61,16 @@ BUILTINS = (
         factory_validates_config=True,
     ),
     PluginSpec(
+        "metric.rag.answer_correctness",
+        "metric",
+        1,
+        "tallyjudge.plugins.metrics.rag.answer_correctness:AnswerCorrectnessMetric",
+        config_type="tallyjudge.plugins.metrics.rag.answer_correctness:AnswerCorrectnessConfig",
+        dependencies={"llm": "language_model"},
+        optional_dependencies={"embeddings": "embedding_model"},
+        factory_validates_config=True,
+    ),
+    PluginSpec(
         "metric.text.string_similarity",
         "metric",
         1,

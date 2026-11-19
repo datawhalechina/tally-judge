@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import math
 import os
 import subprocess
 import sys
@@ -110,6 +111,66 @@ async def check_rag():
     assert (score.value, score.reason) == ("pass", "addressed")
 
 
+async def check_single_turn_rag():
+    client = Client()
+    claim = {"statement": "s", "reason": "supported"}
+    verdicts = [1, 0, 1]
+    client.outputs = iter(
+        [
+            {"statements": ["s"]},
+            {"statements": [dict(claim, verdict=1)]},
+            {"question": "q", "noncommittal": 0},
+            *({"reason": "fixture", "verdict": value} for value in verdicts * 2),
+            {"classifications": [dict(claim, attributed=value) for value in verdicts]},
+            {"statements": ["s"]},
+            {"statements": ["s"]},
+            {"TP": [claim], "FP": [], "FN": []},
+        ]
+    )
+    llm = create_language_model(
+        "model.openai_compatible.chat_completions",
+        model="test",
+        client=client,
+        temperature=0.01,
+    )
+    embeddings = create_embedding_model(
+        "embedding.openai_compatible.embeddings", model="vec", client=client
+    )
+    metrics = [
+        create_metric(FAITH, llm=llm),
+        create_metric(RELEVANCE, llm=llm, embeddings=embeddings, strictness=1),
+        create_metric("metric.retrieval.id_context_precision"),
+        create_metric("metric.retrieval.id_context_recall"),
+        create_metric("metric.rag.context_precision_with_reference", llm=llm),
+        create_metric("metric.rag.context_precision_without_reference", llm=llm),
+        create_metric("metric.rag.context_recall", llm=llm),
+        create_metric("metric.text.semantic_similarity", embeddings=embeddings),
+        create_metric("metric.rag.answer_correctness", llm=llm, embeddings=embeddings),
+    ]
+    row = {
+        "case_id": "ranked",
+        "user_input": "q",
+        "response": "a",
+        "reference": "gold",
+        "retrieved_contexts": ["one", "two", "three"],
+        "retrieved_context_ids": ["B", "A", "A"],
+        "reference_context_ids": ["A", "C", "D"],
+    }
+    result = await Evaluator(metrics, config=ExecutionConfig(max_concurrency=1)).arun(
+        Dataset.from_records([row])
+    )
+    scores = result.row_for("ranked").metrics
+    assert len(scores) == 9 and result.run_status == "completed"
+    for metric, expected in zip(
+        metrics, [1, 1, 1 / 2, 1 / 3, 5 / 6, 5 / 6, 2 / 3, 1, 1], strict=True
+    ):
+        score = scores[metric.spec.id]
+        assert score.status == "success" and math.isclose(
+            score.value, expected, abs_tol=1e-12
+        )
+    assert list(client.outputs) == []
+
+
 def check_distances(installed):
     ids = (
         "metric.text.string_similarity",
@@ -168,6 +229,7 @@ def check_installation():
     assert json.loads(result.to_json())["schema_version"] == 2
     assert result.run_status == "completed" and result.stop_reason is None
     asyncio.run(check_rag())
+    asyncio.run(check_single_turn_rag())
     assert not {
         "ragas",
         "numpy",

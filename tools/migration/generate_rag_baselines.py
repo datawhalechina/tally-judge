@@ -16,17 +16,24 @@ from pathlib import Path
 os.environ["RAGAS_DO_NOT_TRACK"] = "true"
 
 from ragas.dataset_schema import SingleTurnSample
-from ragas.metrics._context_precision import IDBasedContextPrecision
-from ragas.metrics._context_recall import IDBasedContextRecall
 from ragas.embeddings.base import BaseRagasEmbedding
 from ragas.llms.base import InstructorBaseRagasLLM
+from ragas.metrics._context_precision import IDBasedContextPrecision
+from ragas.metrics._context_recall import IDBasedContextRecall
 from ragas.metrics.collections._semantic_similarity import SemanticSimilarity
-from ragas.metrics.collections.context_recall.metric import ContextRecall
-from ragas.metrics.collections.context_recall.util import ContextRecallPrompt
-from ragas.metrics.collections.context_precision.metric import ContextPrecisionWithReference, ContextPrecisionWithoutReference
-from ragas.metrics.collections.context_precision.util import ContextPrecisionPrompt
+from ragas.metrics.collections.answer_correctness.metric import AnswerCorrectness
+from ragas.metrics.collections.answer_correctness.util import (
+    CorrectnessClassifierPrompt,
+)
 from ragas.metrics.collections.answer_relevancy.metric import AnswerRelevancy
 from ragas.metrics.collections.answer_relevancy.util import AnswerRelevancePrompt
+from ragas.metrics.collections.context_precision.metric import (
+    ContextPrecisionWithoutReference,
+    ContextPrecisionWithReference,
+)
+from ragas.metrics.collections.context_precision.util import ContextPrecisionPrompt
+from ragas.metrics.collections.context_recall.metric import ContextRecall
+from ragas.metrics.collections.context_recall.util import ContextRecallPrompt
 from ragas.metrics.collections.faithfulness.metric import Faithfulness
 from ragas.metrics.collections.faithfulness.util import StatementGeneratorPrompt
 from ragas.prompt.metrics.base_prompt import BasePrompt
@@ -37,6 +44,14 @@ ANSWER = "巴黎。"
 
 # Expected TallyJudge outcomes for cases where the upstream scorer raised or returned NaN.
 INTENTIONAL_DIFFERENCES = {
+    "no_classified_statements": {
+        "status": "undefined",
+        "reason": "no_classified_statements",
+    },
+    "no_predicted_statements": {
+        "status": "undefined",
+        "reason": "no_predicted_statements",
+    },
     "bad:None": {"status": "error", "reason": "invalid_embedding"},
     "no_classifications": {"status": "undefined", "reason": "no_classifications"},
     "no_relevant_contexts": {"status": "undefined", "reason": "no_relevant_contexts"},
@@ -81,7 +96,10 @@ class Embeddings(BaseRagasEmbedding):
         return [self.vectors[text] for text in texts]
 
 
-ID_METRICS = {"id_context_precision": IDBasedContextPrecision, "id_context_recall": IDBasedContextRecall}
+ID_METRICS = {
+    "id_context_precision": IDBasedContextPrecision,
+    "id_context_recall": IDBasedContextRecall,
+}
 
 
 CONTEXT_METRICS = {
@@ -156,7 +174,13 @@ def cases():
         ("both_empty", [], []),
     ):
         for metric_id in ID_METRICS:
-            yield metric_id, name, dict(retrieved_context_ids=retrieved, reference_context_ids=reference), [], {}
+            yield (
+                metric_id,
+                name,
+                dict(retrieved_context_ids=retrieved, reference_context_ids=reference),
+                [],
+                {},
+            )
 
     for metric_id, field, answer in (
         ("context_precision_with_reference", "reference", "gold"),
@@ -169,8 +193,18 @@ def cases():
             ("empty_passages", [], []),
             ("empty_passage_text", [""], [1]),
         ):
-            inputs = {"user_input": "question", field: answer, "retrieved_contexts": passages}
-            yield metric_id, name, inputs, [{"reason": "fixture", "verdict": v} for v in flags], {}
+            inputs = {
+                "user_input": "question",
+                field: answer,
+                "retrieved_contexts": passages,
+            }
+            yield (
+                metric_id,
+                name,
+                inputs,
+                [{"reason": "fixture", "verdict": v} for v in flags],
+                {},
+            )
 
     for name, passages, flags in (
         ("mixed_attribution", ["first", "second", "first"], [1, 0, 1]),
@@ -179,37 +213,128 @@ def cases():
         ("empty_passages", [], []),
         ("empty_passage_text", [""], [1]),
     ):
-        inputs = {"user_input": "question", "reference": "gold", "retrieved_contexts": passages}
-        items = [{"statement": "same statement", "reason": "fixture", "attributed": flag} for flag in flags]
-        yield "context_recall", name, inputs, [{"classifications": items}] if passages else [], {}
+        inputs = {
+            "user_input": "question",
+            "reference": "gold",
+            "retrieved_contexts": passages,
+        }
+        items = [
+            {"statement": "same statement", "reason": "fixture", "attributed": flag}
+            for flag in flags
+        ]
+        yield (
+            "context_recall",
+            name,
+            inputs,
+            [{"classifications": items}] if passages else [],
+            {},
+        )
 
 
 def configured_cases():
     for case in cases():
         yield (*case, {})
-    vectors = {"X": [1.0, 0.0], "Y": [0.0, 1.0], "-X": [-1.0, 0.0], "Z": [0.0, 0.0], " ": [1.0, 0.0], "bad": [1.0]}
-    for text, threshold in (("X", None), ("Y", None), ("-X", None), ("Y", 0.0), ("-X", 0.0), ("X", 1.0), ("Z", None), ("Z", 0.0), ("", None), ("bad", None)):
+    vectors = {
+        "X": [1.0, 0.0],
+        "Y": [0.0, 1.0],
+        "-X": [-1.0, 0.0],
+        "Z": [0.0, 0.0],
+        " ": [1.0, 0.0],
+        "bad": [1.0],
+    }
+    for text, threshold in (
+        ("X", None),
+        ("Y", None),
+        ("-X", None),
+        ("Y", 0.0),
+        ("-X", 0.0),
+        ("X", 1.0),
+        ("Z", None),
+        ("Z", 0.0),
+        ("", None),
+        ("bad", None),
+    ):
         name = "zero_vector" if text == "Z" else f"{text or 'blank'}:{threshold}"
-        yield "semantic_similarity", name, {"reference": "X", "response": text}, [], vectors, {"threshold": threshold}
+        yield (
+            "semantic_similarity",
+            name,
+            {"reference": "X", "response": text},
+            [],
+            vectors,
+            {"threshold": threshold},
+        )
+
+    inputs = {"user_input": "question", "response": "observed", "reference": "gold"}
+    vectors = {"observed": [-1.0, 0.0], "gold": [1.0, 0.0], "": [-1.0, 0.0]}
+    mixed = (["A", "B"], ["A", "C", "D"], (1, 1, 2))
+    answer_only = (["B"], [], (0, 1, 0))
+    reference_only = ([], ["C"], (0, 0, 1))
+    empty = ([], [], None)
+    for name, statements, weights, beta in (
+        ("weighted", mixed, [0.75, 0.25], 1.0),
+        ("beta_two", mixed, [2.0, 0.0], 2.0),
+        ("scaled_weights", mixed, [3.0, 1.0], 1.0),
+        ("answer_only", answer_only, [1.0, 0.0], 1.0),
+        ("reference_only", reference_only, [1.0, 0.0], 1.0),
+        ("negative_total", answer_only, [0.75, 0.25], 1.0),
+        ("empty_factual", empty, [1.0, 0.0], 1.0),
+        ("empty_weighted", empty, [0.75, 0.25], 1.0),
+        ("no_classified_statements", (["A"], ["B"], (0, 0, 0)), [0.75, 0.25], 1.0),
+        ("no_predicted_statements", reference_only, [1.0, 0.0], 0.0),
+        ("beta_zero", answer_only, [1.0, 0.0], 0.0),
+        ("zero_vector", mixed, [0.75, 0.25], 1.0),
+        ("only_similarity", mixed, [0.0, 1.0], 1.0),
+        ("raw_empty", reference_only, [0.75, 0.25], 1.0),
+    ):
+        left, right, counts = statements
+        replies = [{"statements": left}, {"statements": right}]
+        if counts is not None:
+            replies.append(
+                {
+                    key: [{"statement": "item", "reason": "fixture"}] * count
+                    for key, count in zip(("TP", "FP", "FN"), counts, strict=True)
+                }
+            )
+        row = dict(inputs, response="") if name == "raw_empty" else inputs
+        directions = (
+            dict(vectors, observed=[0.0, 0.0]) if name == "zero_vector" else vectors
+        )
+        yield (
+            "answer_correctness",
+            name,
+            row,
+            replies,
+            directions,
+            {"weights": weights, "beta": beta},
+        )
 
 
 async def legacy_score(metric_id, inputs, replies, vectors, judge, calls, settings):
     if metric_id in ID_METRICS:
-        return await ID_METRICS[metric_id]().single_turn_ascore(SingleTurnSample(**inputs))
-    if metric_id == "semantic_similarity":
+        return await ID_METRICS[metric_id]().single_turn_ascore(
+            SingleTurnSample(**inputs)
+        )
+    if metric_id == "answer_correctness":
+        embeddings = Embeddings(vectors, calls) if settings["weights"][1] else None
+        metric = AnswerCorrectness(llm=judge, embeddings=embeddings, **settings)
+    elif metric_id == "semantic_similarity":
         metric = SemanticSimilarity(embeddings=Embeddings(vectors, calls), **settings)
     elif metric_id in CONTEXT_METRICS:
         metric = CONTEXT_METRICS[metric_id](llm=judge)
     elif metric_id == "faithfulness":
         metric = Faithfulness(llm=judge)
     else:
-        metric = AnswerRelevancy(llm=judge, embeddings=Embeddings(vectors, calls), strictness=len(replies))
+        metric = AnswerRelevancy(
+            llm=judge, embeddings=Embeddings(vectors, calls), strictness=len(replies)
+        )
     return (await metric.ascore(**inputs)).value
 
 
 async def generate(source_root):
     hashes = {}
     for cls in (
+        AnswerCorrectness,
+        CorrectnessClassifierPrompt,
         SemanticSimilarity,
         SingleTurnSample,
         *ID_METRICS.values(),
@@ -250,7 +375,9 @@ async def generate(source_root):
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", RuntimeWarning)
-                score = await legacy_score(metric_id, inputs, replies, vectors, judge, calls, settings)
+                score = await legacy_score(
+                    metric_id, inputs, replies, vectors, judge, calls, settings
+                )
             old = (
                 {"value": score} if math.isfinite(score) else {"nonfinite": str(score)}
             )
@@ -267,7 +394,12 @@ async def generate(source_root):
                 calls=calls,
                 old=old,
                 intentional_difference=(
-                    {"status": "undefined", "reason": "no_retrieved_ids" if metric_id == "id_context_precision" else "no_reference_ids"}
+                    {
+                        "status": "undefined",
+                        "reason": "no_retrieved_ids"
+                        if metric_id == "id_context_precision"
+                        else "no_reference_ids",
+                    }
                     if metric_id in ID_METRICS and "nonfinite" in old
                     else INTENTIONAL_DIFFERENCES.get(name)
                 ),

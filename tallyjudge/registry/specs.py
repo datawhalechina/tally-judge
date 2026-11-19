@@ -29,8 +29,20 @@ class PluginSpec:
     ] = field(default_factory=dict)
     install_extra: str | None = None
     factory_validates_config: bool = False
+    optional_dependencies: Mapping[
+        str, Literal["language_model", "embedding_model", "client"]
+    ] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        if self.optional_dependencies.keys() & self.dependencies.keys():
+            raise ValueError(
+                f"Dependency declared as both required and optional: {self.id}"
+            )
+        object.__setattr__(
+            self,
+            "optional_dependencies",
+            MappingProxyType(dict(self.optional_dependencies)),
+        )
         object.__setattr__(
             self, "dependencies", MappingProxyType(dict(self.dependencies))
         )

@@ -153,13 +153,16 @@ class PluginRegistry:
 
     def _construct(self, spec: PluginSpec, config: dict[str, Any]) -> Any:
         schema = _config_schema(spec)
-        if spec.dependencies.keys() & schema.model_fields.keys():
+        declared = {**spec.dependencies, **spec.optional_dependencies}
+        if declared.keys() & schema.model_fields.keys():
             raise PluginError(f"Configuration and dependency names overlap: {spec.id}")
         dependencies = {}
-        for name, kind in spec.dependencies.items():
-            if name not in config or config[name] is None:
-                raise PluginError(f"Missing dependency {name!r} for {spec.id}")
-            dependency = config.pop(name)
+        for name, kind in declared.items():
+            dependency = config.pop(name, None)
+            if dependency is None:
+                if name in spec.dependencies:
+                    raise PluginError(f"Missing dependency {name!r} for {spec.id}")
+                continue
             if kind != "client" and not _matches_model(dependency, kind):
                 raise PluginError(f"Invalid {kind} dependency {name!r} for {spec.id}")
             dependencies[name] = dependency

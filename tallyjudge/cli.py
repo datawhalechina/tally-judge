@@ -33,7 +33,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(
                 json.dumps(
                     [
-                        {"id": s.id, "dependencies": dict(s.dependencies)}
+                        {
+                            "id": s.id,
+                            "dependencies": dict(s.dependencies),
+                            **(
+                                {"optional_dependencies": dict(s.optional_dependencies)}
+                                if s.optional_dependencies
+                                else {}
+                            ),
+                        }
                         for s in registry.list(kind="metric")
                     ]
                 )
