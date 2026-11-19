@@ -13,6 +13,7 @@ from typing import Any, Literal
 
 from tallyjudge.core.dataset import canonical_json
 from tallyjudge.core.errors import (
+    ClientLoopError,
     InputValidationError,
     ModelError,
     ModelOutputError,
@@ -141,12 +142,22 @@ class Job[T: (ScoreResult, RowTaskResult)](ABC):
         return self.record(outcome)
 
 
+def _digest(value: Any) -> str | None:
+    """Hash JSON-compatible arguments; custom validators may return other objects."""
+    try:
+        encoded = canonical_json(value).encode("utf-8")
+    except (TypeError, ValueError):
+        return None
+    return hashlib.sha256(encoded).hexdigest()
+
+
 @dataclass
 class MetricJob(Job[ScoreResult]):
     binding: MetricBinding
     metadata: dict[str, Any]
     cache: ScoreCache | None
     cache_key: str | None = field(default=None, init=False)
+    inputs_sha256: str | None = field(default=None, init=False)
 
     def __post_init__(self) -> None:
         self.key = self.binding.key
@@ -156,7 +167,9 @@ class MetricJob(Job[ScoreResult]):
         return ScoreResult(status, error=error)
 
     def store(self, outcome: ScoreResult) -> None:
-        self.row.metrics[self.binding.key] = outcome
+        self.row.metrics[self.binding.key] = replace(
+            outcome, inputs_sha256=self.inputs_sha256
+        )
         if outcome.cache_hit:
             self.events.emit(
                 "cache_hit",
@@ -164,36 +177,38 @@ class MetricJob(Job[ScoreResult]):
                 metric_key=self.key,
                 status="success",
             )
-        elif (
-            outcome.status == "success"
-            and outcome.value is not None
-            and self.cache is not None
-            and self.cache_key is not None
-        ):
-            # Only the scheduler accepts results; a worker that outlives its deadline cannot write.
-            try:
-                self.cache.put(
-                    self.cache_key, MetricResult(outcome.value, outcome.reason)
-                )
-            except Exception:
-                logger.warning(
-                    "Could not cache score for %s, binding %s",
-                    self.row.case_id,
-                    self.key,
-                    exc_info=True,
-                )
 
-    def _cached_score(
-        self, cache: ScoreCache, inputs: dict[str, Any]
-    ) -> ScoreResult | None:
-        identity = [cache.namespace, self.row.case_id, self.key, self.metadata, inputs]
+    def cache_entry(self) -> tuple[ScoreCache, str, MetricResult] | None:
+        """Return the write for an accepted, freshly computed success, if caching applies.
+
+        The scheduler calls this only after it records the terminal state, so a worker
+        that outlived its deadline can never populate the cache.
+        """
+        score = self.row.metrics[self.binding.key]
+        if (
+            self.cache is None
+            or self.cache_key is None
+            or score.status != "success"
+            or score.cache_hit
+            or score.value is None
+        ):
+            return None
+        return self.cache, self.cache_key, MetricResult(score.value, score.reason)
+
+    async def _cached_score(self, cache: ScoreCache) -> ScoreResult | None:
+        if self.inputs_sha256 is None:
+            return None
+        # The binding key, column mapping and case ID do not change a score, so they
+        # are excluded: renaming a binding or re-keying a dataset still reuses it.
+        scoring = {k: v for k, v in self.metadata.items() if k != "input_map"}
+        key = _digest([cache.namespace, scoring, self.inputs_sha256])
+        self.cache_key = key
+        if key is None:
+            return None
         try:
-            self.cache_key = hashlib.sha256(
-                canonical_json(identity).encode("utf-8")
-            ).hexdigest()
-            hit = cache.get(self.cache_key)
+            # Disk caches may wait on file locks; keep the event loop responsive.
+            hit = await asyncio.to_thread(cache.get, key)
         except Exception:
-            # Custom validators can produce non-JSON objects. Their scores remain usable.
             logger.warning(
                 "Could not read score cache for %s, binding %s",
                 self.row.case_id,
@@ -212,8 +227,9 @@ class MetricJob(Job[ScoreResult]):
         spec = self.binding.metric.spec
         try:
             inputs = self.binding.inputs_for(record)
+            self.inputs_sha256 = _digest(inputs)
             if self.cache is not None:
-                hit = self._cached_score(self.cache, inputs)
+                hit = await self._cached_score(self.cache)
                 if hit is not None:
                     return hit
             output = await self.binding.ascore_validated(inputs)
@@ -251,7 +267,8 @@ class MetricJob(Job[ScoreResult]):
                 "error",
                 error=ErrorInfo("model_error", type(exc.__cause__ or exc).__name__),
             )
-        except UsageScopeClosed:
+        except (UsageScopeClosed, ClientLoopError):
+            # A sealed score must stop here; a loop-bound client is a run-level error.
             raise
         except Exception as exc:
             logger.exception(

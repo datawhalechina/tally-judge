@@ -1,0 +1,13 @@
+TallyJudge
+Copyright 2026 Datawhale
+
+This product is derived from Ragas (https://github.com/vibrantlabsai/ragas),
+Copyright 2023 Vibrant Labs, licensed under the Apache License, Version 2.0.
+
+TallyJudge is maintained in an independent Git history. The original Ragas
+implementation, tests, examples and documentation site, together with their
+commit history and contributor records, are preserved on the `legacy-ragas`
+branch of https://github.com/datawhalechina/tally-judge. Algorithms migrated
+from that implementation are taken from commit
+ec003395bb37c223fc981e6567162513aec52a71; each migrated module names its
+source and records any change in interface or scoring behavior.

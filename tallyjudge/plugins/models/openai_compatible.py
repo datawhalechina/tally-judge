@@ -33,9 +33,10 @@ class OpenAICompatibleLanguageModel(LanguageModelBase):
 
     plugin_id = "model.openai_compatible.chat_completions"
 
-    def __init__(self, *, client: Any, config: ChatConfig):
-        self.config = config
-        self._transport = ClientTransport(client, config, "generation")
+    def __init__(self, *, client: Any, **settings: Any):
+        """Validate ``ChatConfig`` settings and bind a retry-disabled client view."""
+        self.config = ChatConfig(**settings)
+        self._transport = ClientTransport(client, self.config, "generation")
 
     @property
     def structured_retries(self) -> int:

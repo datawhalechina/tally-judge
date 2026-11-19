@@ -11,7 +11,7 @@ from uuid import uuid4
 
 from tallyjudge.core.config import ExecutionConfig
 from tallyjudge.core.dataset import Dataset
-from tallyjudge.core.errors import EvaluationAborted, RunSaveError
+from tallyjudge.core.errors import ClientLoopError, EvaluationAborted
 from tallyjudge.core.events import RunEvents
 from tallyjudge.core.jobs import ExperimentJob, Job, MetricJob, RowFunction
 from tallyjudge.core.results import (
@@ -26,7 +26,6 @@ from tallyjudge.core.results import (
 from tallyjudge.interfaces.cache import ScoreCache
 from tallyjudge.interfaces.events import EventSink
 from tallyjudge.interfaces.metrics import MetricBinding
-from tallyjudge.interfaces.storage import StorageBackend
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +103,28 @@ def run_sync[T](
         detached.clear()
 
 
+def _log_cache_write(task: asyncio.Task[None]) -> None:
+    if not task.cancelled() and task.exception() is not None:
+        logger.warning("Could not cache a score", exc_info=task.exception())
+
+
+async def _drain(writes: set[asyncio.Task[None]], timeout: float) -> None:
+    """Wait a bounded time for background cache writes; they never change results."""
+    if writes:
+        _, unfinished = await asyncio.wait(writes, timeout=timeout)
+        if unfinished:
+            logger.warning("%d score cache writes still pending", len(unfinished))
+
+
 class TaskRunner:
+    """Schedule row functions and metric bindings for one run.
+
+    The runner owns concurrency, deadlines, cancellation and terminal states.
+    Persistence belongs to the caller (see ``Evaluator``): the runner returns the
+    result, raises ``EvaluationAborted`` with a partial result, or re-raises the
+    original exception after recording the run status in ``collector``.
+    """
+
     async def arun(
         self,
         dataset: Dataset,
@@ -113,8 +133,6 @@ class TaskRunner:
         collector: RunCollector,
         *,
         row_function: RowFunction | None = None,
-        backend: StorageBackend | None = None,
-        include_inputs: bool = True,
         event_sink: EventSink | None = None,
         cache: ScoreCache | None = None,
     ) -> RunResult:
@@ -142,6 +160,18 @@ class TaskRunner:
         events.emit("run_started", status="running")
         active: dict[asyncio.Task[Any], Job[Any]] = {}
         cleaning: dict[asyncio.Task[Any], tuple[Job[Any], float]] = {}
+        cache_writes: set[asyncio.Task[None]] = set()
+
+        def write_cache(job: MetricJob) -> None:
+            entry = job.cache_entry()
+            if entry is None:
+                return
+            store, key, score = entry
+            task = asyncio.create_task(asyncio.to_thread(store.put, key, score))
+            cache_writes.add(task)
+            task.add_done_callback(cache_writes.discard)
+            task.add_done_callback(_log_cache_write)
+
         # Prefer ready metrics so completed experiments do not accumulate a second work queue.
         steps = (row_function,) if row_function is not None else bindings
         initial = ((row, step) for row in result.rows for step in steps)
@@ -222,6 +252,8 @@ class TaskRunner:
                         else:
                             job = active.pop(task)
                             status = job.finish(task)
+                            if isinstance(job, MetricJob):
+                                write_cache(job)
                             if isinstance(job, ExperimentJob) and status == "success":
                                 ready.extend((job.row, binding) for binding in bindings)
                             failed |= status in ("error", "timeout")
@@ -260,18 +292,24 @@ class TaskRunner:
                 except BaseException as exc:
                     if error is None:
                         error = exc
-                        stop("aborted", "internal_error")
+                        reason = (
+                            "client_loop"
+                            if isinstance(exc, ClientLoopError)
+                            else "internal_error"
+                        )
+                        stop("aborted", reason)
 
+            try:
+                await _drain(cache_writes, config.cleanup_timeout)
+            except asyncio.CancelledError as exc:
+                # Results are final; a late cancellation only skips waiting for cache I/O.
+                if error is None:
+                    error = exc
             result.run_status, result.stop_reason = stopping or ("completed", None)
+            if isinstance(error, asyncio.CancelledError) and stopping is None:
+                result.run_status, result.stop_reason = "cancelled", "external_cancel"
             events.emit("run_finished", status=result.run_status)
             result.events_complete = events.complete
-            if backend is not None:
-                try:
-                    result.save(backend=backend, include_inputs=include_inputs)
-                except Exception as exc:
-                    if error is None and result.run_status != "aborted":
-                        raise RunSaveError(collector.snapshot()) from exc
-                    logger.exception("Saving partial run %s failed", result.run_id)
             if error is not None:
                 raise error
             if result.run_status == "aborted":

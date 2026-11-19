@@ -45,9 +45,10 @@ class OpenAICompatibleEmbeddingModel:
     plugin_id = "embedding.openai_compatible.embeddings"
     usage_tracking: Literal["per_request"] = "per_request"
 
-    def __init__(self, *, client: Any, config: EmbeddingConfig):
-        self.config = config
-        self._transport = ClientTransport(client, config, "embedding")
+    def __init__(self, *, client: Any, **settings: Any):
+        """Validate ``EmbeddingConfig`` settings and bind a retry-disabled client view."""
+        self.config = EmbeddingConfig(**settings)
+        self._transport = ClientTransport(client, self.config, "embedding")
 
     def config_snapshot(self) -> dict[str, Any]:
         return self.config.model_dump(mode="json")

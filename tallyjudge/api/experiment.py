@@ -24,6 +24,12 @@ class _RunOptions(TypedDict, total=False):
 
 
 class ExperimentWrapper:
+    """Run a decorated row function per sample, then score its outputs.
+
+    Metrics and evaluator options (config, backend, cache, event sink) are given per
+    call, so one experiment can be scored with different settings.
+    """
+
     def __init__(self, function: RowFunction) -> None:
         self.function = function
 

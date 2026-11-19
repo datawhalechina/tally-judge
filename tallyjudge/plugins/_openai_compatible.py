@@ -7,7 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from tallyjudge.core.errors import ModelError
+from tallyjudge.core.errors import ClientLoopError, ModelError
 from tallyjudge.core.usage import RequestKind, RequestRecord, Usage, record_request
 
 logger = logging.getLogger(__name__)
@@ -39,7 +39,11 @@ class ClientTransport:
         if self._loop is None:
             self._loop = loop
         elif self._loop is not loop:
-            raise RuntimeError("Use the model on its original event loop")
+            raise ClientLoopError(
+                "This model's client is bound to another event loop. Create the "
+                "client and model inside one asyncio.run(main()) and await arun "
+                "there, instead of calling the synchronous run() repeatedly."
+            )
 
         with record_request(self.kind, records) as record:
             try:

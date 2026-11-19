@@ -13,7 +13,7 @@ from tallyjudge import (
     create_language_model,
     create_metric,
 )
-from tallyjudge.core.errors import ModelError
+from tallyjudge.core.errors import ClientLoopError, ModelError
 from tallyjudge.core.prompts import PromptInput
 
 httpx = pytest.importorskip("httpx")
@@ -119,7 +119,7 @@ async def test_sdk_request_bodies_order_and_client_ownership():
         )
         assert not client.is_closed()
         assert "test-secret" not in r.to_json()
-        with pytest.raises(RuntimeError, match="original event loop"):
+        with pytest.raises(ClientLoopError, match="another event loop"):
             await asyncio.to_thread(asyncio.run, emb.aembed_texts(["other"]))
         assert len(sent) == 5
 

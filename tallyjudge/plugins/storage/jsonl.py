@@ -13,6 +13,13 @@ from tallyjudge.plugins._local import run_file
 
 
 class JsonlStorageBackend:
+    """Store each terminal run as ``run-<run_id>.jsonl`` under ``root``.
+
+    Publishing uses a hard link from a temporary file in the same directory, so a
+    reader never sees a partial file and a concurrent identical save is idempotent.
+    The directory must be on a file system that supports hard links.
+    """
+
     def __init__(self, *, root: str | Path) -> None:
         self.root = Path(root)
 

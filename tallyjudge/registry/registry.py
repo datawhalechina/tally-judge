@@ -53,6 +53,8 @@ def _matches_model(value: Any, kind: str) -> bool:
 
 
 class PluginRegistry:
+    """Map stable plugin IDs to lazily loaded factories and their configuration."""
+
     def __init__(self, specs: Iterable[PluginSpec] = ()) -> None:
         self._specs: dict[str, PluginSpec] = {}
         for spec in specs:
@@ -133,11 +135,8 @@ class PluginRegistry:
                     f"Missing optional distribution {name} for plugin {spec.id}"
                 ) from exc
         factory = _load(spec.factory, spec.id)
-        options = (
-            {name: getattr(validated, name) for name in schema.model_fields}
-            if spec.kind not in ("model", "embedding")
-            else {"config": validated}
-        )
+        # One convention for every kind: injected objects and settings as keywords.
+        options = {name: getattr(validated, name) for name in schema.model_fields}
         try:
             plugin = factory(**dependencies, **options)
         except Exception as exc:

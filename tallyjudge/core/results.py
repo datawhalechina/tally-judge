@@ -3,6 +3,7 @@
 import copy
 import hashlib
 import json
+import math
 from dataclasses import asdict, dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -47,12 +48,21 @@ class ErrorInfo:
 
 @dataclass(frozen=True)
 class ScoreResult:
+    """One binding's state for one row.
+
+    ``inputs_sha256`` digests the validated arguments the scorer actually received,
+    including experiment output overlays and parameter defaults. It lets saved runs
+    be compared without retaining raw inputs; it is None for v1 records, rows that
+    never validated, and arguments that are not JSON values.
+    """
+
     status: Status
     value: ScoreValue | None = None
     reason: str | None = None
     error: ErrorInfo | None = None
     usage: ScoreUsage | None = None
     cache_hit: bool = False
+    inputs_sha256: str | None = None
 
 
 @dataclass(frozen=True)
@@ -167,8 +177,8 @@ class RunResult:
             ):
                 raise ValueError(f"Invalid ID source or metric bindings at row {index}")
             for key, score in row.metrics.items():
-                if score.status == "success" and not isinstance(
-                    score.value, output_types[key]
+                if score.status == "success" and not _stored_value_is_valid(
+                    score.value, output_types[key], result.metrics[key]
                 ):
                     raise ValueError(
                         f"Invalid stored score at row {index}, binding {key}"
@@ -194,6 +204,7 @@ class RunResult:
                 del row["task"]
                 for score in row["metrics"].values():
                     del score["cache_hit"]
+                    del score["inputs_sha256"]
         return data
 
     def to_dict(self, *, include_inputs: bool = True) -> dict[str, Any]:
@@ -214,6 +225,21 @@ class RunResult:
 
 
 _RUN_SCHEMA = TypeAdapter(RunResult)
+
+
+def _stored_value_is_valid(
+    value: Any, output_type: type, binding: dict[str, Any]
+) -> bool:
+    """Apply the saved binding's output contract to an archived successful score."""
+    if not isinstance(value, output_type):
+        return False
+    if output_type is float:
+        return math.isfinite(value)
+    if output_type is str:
+        labels = binding.get("labels")
+        return isinstance(labels, list) and value in labels
+    length = binding.get("ranking_length")
+    return type(length) is int and len(value) == length
 
 
 class RunCollector:

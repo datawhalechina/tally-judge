@@ -18,6 +18,13 @@ from tallyjudge.core.results import MetricResult
 
 @dataclass(frozen=True)
 class MetricSpec:
+    """Declare a metric's identity, typed parameters and output contract.
+
+    ``defaults`` holds values for optional parameters. Binding validation applies
+    them when a row lacks the column, so batch scoring, direct ``ascore_inputs``
+    calls and score cache keys all see the same effective arguments.
+    """
+
     id: str
     revision: str
     inputs: Mapping[str, Any]
@@ -27,6 +34,7 @@ class MetricSpec:
 
     labels: tuple[str, ...] = ()
     ranking_length: int | None = None
+    defaults: Mapping[str, Any] = field(default_factory=dict)
 
     @property
     def output_kind(self) -> Literal["numeric", "categorical", "ranking"]:
@@ -74,6 +82,9 @@ class MetricSpec:
         if low is not None and high is not None and low > high:
             raise ValueError("Metric value range is reversed")
         object.__setattr__(self, "inputs", MappingProxyType(dict(self.inputs)))
+        if set(self.defaults) - set(self.inputs):
+            raise ValueError("Metric defaults must name declared inputs")
+        object.__setattr__(self, "defaults", MappingProxyType(dict(self.defaults)))
         adapters = {
             name: TypeAdapter(annotation) for name, annotation in self.inputs.items()
         }
@@ -106,17 +117,22 @@ def _expected(annotation: Any) -> str:
 
 
 def validate_inputs(spec: MetricSpec, inputs: Mapping[str, Any]) -> dict[str, Any]:
-    """Return the strictly validated parameter values that the scorer will receive."""
+    """Return the strictly validated parameter values that the scorer will receive.
+
+    A missing parameter takes its declared default; defaults are validated too.
+    """
     values = {}
     for name, annotation in spec.inputs.items():
-        if name not in inputs:
+        if name in inputs:
+            value = inputs[name]
+        elif name in spec.defaults:
+            value = spec.defaults[name]
+        else:
             raise InputValidationError(
                 "Missing metric input field", field=name, expected=_expected(annotation)
             )
         try:
-            values[name] = spec._adapters[name].validate_python(
-                inputs[name], strict=True
-            )
+            values[name] = spec._adapters[name].validate_python(value, strict=True)
         except ValidationError as exc:
             raise InputValidationError(
                 "Metric input type does not match its specification",

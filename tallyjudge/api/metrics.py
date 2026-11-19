@@ -27,6 +27,7 @@ def _decorator(
     def decorate(function: Callable[..., Any]) -> FunctionMetricFactory:
         hints = get_type_hints(function, include_extras=True)
         inputs = {}
+        defaults = {}
         for name, param in inspect.signature(function).parameters.items():
             if name not in hints or param.kind not in (
                 param.POSITIONAL_OR_KEYWORD,
@@ -36,8 +37,11 @@ def _decorator(
                     f"Metric parameter {name!r} needs a type and must accept a keyword"
                 )
             inputs[name] = hints[name]
+            if param.default is not param.empty:
+                defaults[name] = param.default
         return FunctionMetricFactory(
-            function, MetricSpec(plugin_id, revision, inputs, **output)
+            function,
+            MetricSpec(plugin_id, revision, inputs, defaults=defaults, **output),
         )
 
     return decorate

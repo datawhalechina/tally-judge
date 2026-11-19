@@ -18,6 +18,11 @@ class SqliteCacheConfig(BaseModel):
 
 
 class SqliteScoreCache:
+    """Store successful binding scores in one SQLite file, keyed by score identity.
+
+    Methods block on file locks; the scheduler calls them from worker threads.
+    """
+
     def __init__(self, *, path: str | Path, namespace: str) -> None:
         self.path = Path(path)
         self.namespace = namespace

@@ -43,6 +43,14 @@ class ModelError(RuntimeError):
     """A model transport failed. The provider exception is retained as the cause."""
 
 
+class ClientLoopError(RuntimeError):
+    """A caller-owned client was used outside the event loop it is bound to.
+
+    This is a configuration error for the whole run, not a per-row failure: the
+    scheduler aborts the run and re-raises it instead of recording each row.
+    """
+
+
 class ModelOutputError(ValueError):
     """A model response cannot satisfy the requested output contract."""
 

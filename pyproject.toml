@@ -2,9 +2,26 @@
 name = "tallyjudge"
 description = "TallyJudge evaluation framework for RAG and LLM applications"
 requires-python = ">=3.12"
-license = {file = "LICENSE"}
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "Datawhale" }]
+keywords = ["evaluation", "rag", "llm", "llm-as-a-judge"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Typing :: Typed",
+]
 dependencies = ["pydantic>=2,<3"]
 dynamic = ["version", "readme"]
+
+# Installed by users who call model plugins; the plugins never import it at module level.
+[project.optional-dependencies]
+openai = ["openai>=2,<3"]
 
 [project.scripts]
 tallyjudge = "tallyjudge.cli:main"
@@ -16,7 +33,7 @@ Code = "https://github.com/datawhalechina/tally-judge"
 Issues = "https://github.com/datawhalechina/tally-judge/issues"
 
 [build-system]
-requires = ["setuptools>=64", "setuptools_scm>=8"]
+requires = ["setuptools>=77", "setuptools_scm>=8"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
@@ -36,6 +53,8 @@ readme = {file = ["README.md"], content-type = "text/markdown"}
 
 [tool.setuptools_scm]
 version_file = "tallyjudge/_version.py"
+# Source archives without Git metadata (for example a downloaded zip) still build.
+fallback_version = "0.0.0"
 
 # The integration group pins the SDK and schema renderer used by the migration tests.
 [dependency-groups]

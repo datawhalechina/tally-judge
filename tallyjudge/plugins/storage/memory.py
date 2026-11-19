@@ -9,6 +9,8 @@ from tallyjudge.interfaces.storage import storage_snapshot
 
 
 class MemoryStorageBackend:
+    """Keep serialized runs in this process; each load returns an independent copy."""
+
     def __init__(self) -> None:
         self._runs: dict[str, str] = {}
         self._lock = Lock()

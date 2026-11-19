@@ -40,6 +40,46 @@ def _experiment_inputs(
     }
 
 
+def _same(a: Any, b: Any) -> bool:
+    """Compare saved settings as JSON, so True and 1 or 1 and 1.0 stay distinct."""
+    return canonical_json(a) == canonical_json(b)
+
+
+def _experiment_input_change(
+    left: RunResult,
+    right: RunResult,
+    lrow: RowResult,
+    rrow: RowResult,
+    key: str,
+    a: ScoreResult | None,
+    b: ScoreResult | None,
+) -> str | None:
+    """Decide whether an experiment changed the arguments a binding scored.
+
+    Recorded argument digests are authoritative. Older archives fall back to
+    rebuilding the scored columns from saved inputs; without either, the change
+    cannot be ruled out and no delta is reported.
+    """
+    if a is not None and b is not None and a.inputs_sha256 and b.inputs_sha256:
+        return (
+            None if a.inputs_sha256 == b.inputs_sha256 else "experiment_input_changed"
+        )
+    if left.inputs is None and right.inputs is None:
+        return "experiment_input_unverified"
+    original = (
+        left.inputs[lrow.input_index]
+        if left.inputs is not None
+        else right.inputs[rrow.input_index]  # type: ignore[index]
+    )
+    columns = left.metrics[key]["input_map"].values()
+    if _same(
+        _experiment_inputs(lrow, columns, original),
+        _experiment_inputs(rrow, columns, original),
+    ):
+        return None
+    return "experiment_input_changed"
+
+
 def compare_runs(left: RunResult, right: RunResult) -> RunComparison:
     """Compare right minus left for successful numeric scores with the same inputs and settings."""
     generated = any(
@@ -72,14 +112,14 @@ def compare_runs(left: RunResult, right: RunResult) -> RunComparison:
         changes = [
             name
             for name in ("id", "revision", "config_snapshot", "input_map")
-            if a[name] != b[name]
+            if not _same(a[name], b[name])
         ]
         for name, default in (
             ("output_kind", "numeric"),
             ("labels", None),
             ("ranking_length", None),
         ):
-            if a.get(name, default) != b.get(name, default):
+            if not _same(a.get(name, default), b.get(name, default)):
                 changes.append(name)
         binding_changes[key] = tuple(changes)
     rows = []
@@ -100,16 +140,9 @@ def compare_runs(left: RunResult, right: RunResult) -> RunComparison:
             b = rrow.metrics.get(key) if rrow else None
             settings = binding_changes[key]
             if not (changes or settings) and lrow and rrow and (lrow.task or rrow.task):
-                columns = left.metrics[key]["input_map"].values()
-                original = {}
-                if left.inputs is not None:
-                    original = left.inputs[lrow.input_index]
-                elif right.inputs is not None:
-                    original = right.inputs[rrow.input_index]
-                if canonical_json(
-                    _experiment_inputs(lrow, columns, original)
-                ) != canonical_json(_experiment_inputs(rrow, columns, original)):
-                    settings += ("experiment_input_changed",)
+                change = _experiment_input_change(left, right, lrow, rrow, key, a, b)
+                if change is not None:
+                    settings += (change,)
             delta = None
             if (
                 not (changes or settings)
