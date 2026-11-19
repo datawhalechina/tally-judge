@@ -1,10 +1,14 @@
 """Count actual requests and freeze the observed token usage at a score's deadline."""
 
+import asyncio
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Literal
+from uuid import uuid4
+
+from tallyjudge.core.events import RunEvents
 
 type RequestKind = Literal["generation", "embedding"]
 type Tracking = Literal["per_request", "untracked"]
@@ -96,6 +100,9 @@ class UsageScope:
         default_factory=lambda: {"generation": set(), "embedding": set()}
     )
     sealed: bool = False
+    events: RunEvents | None = None
+    case_id: str | None = None
+    metric_key: str | None = None
 
     @contextmanager
     def activate(self) -> Iterator[None]:
@@ -124,6 +131,17 @@ class UsageScope:
 _scope: ContextVar[UsageScope | None] = ContextVar("tallyjudge_usage", default=None)
 
 
+class RequestCall(list[RequestRecord]):
+    """All actual requests made by a single generation or embedding invocation."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        scope = _scope.get()
+        self.call_id = (
+            str(uuid4()) if scope and scope.events and scope.events.sink else None
+        )
+
+
 class UsageScopeClosed(RuntimeError):
     """A finished score can no longer start a model request."""
 
@@ -146,7 +164,36 @@ def record_request(
     call.append(record)
     if scope is not None:
         scope.records[kind].append(record)
+    events = scope.events if scope is not None else None
+    observing = scope is not None and events is not None and events.sink is not None
+    attempt_id = str(uuid4()) if observing else None
+    call_id = call.call_id if isinstance(call, RequestCall) else attempt_id
+
+    def emit(event_kind: str, status: str) -> None:
+        if events is not None and scope is not None and not scope.sealed:
+            events.emit(
+                event_kind,
+                case_id=scope.case_id,
+                metric_key=scope.metric_key,
+                call_id=call_id,
+                attempt_id=attempt_id,
+                request_kind=kind,
+                status=status,
+                usage=record.usage,
+            )
+
+    if observing:
+        emit("request_started", "running")
+    status = "success"
     try:
         yield record
+    except asyncio.CancelledError:
+        status = "cancelled"
+        raise
+    except Exception:
+        status = "error"
+        raise
     finally:
         record.finished = True
+        if observing:
+            emit("request_finished", status)

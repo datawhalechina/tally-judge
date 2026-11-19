@@ -31,6 +31,14 @@ class EvaluationAborted(RuntimeError):
         self.partial_result = partial_result
 
 
+class RunSaveError(RuntimeError):
+    """An opted-in automatic save failed; the finished result is still available."""
+
+    def __init__(self, result: "RunResult") -> None:
+        super().__init__(f"Could not save run {result.run_id}")
+        self.result = result
+
+
 class ModelError(RuntimeError):
     """A model transport failed. The provider exception is retained as the cause."""
 

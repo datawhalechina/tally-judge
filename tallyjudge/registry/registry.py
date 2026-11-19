@@ -8,8 +8,17 @@ from typing import Any
 from pydantic import BaseModel, ValidationError
 
 from tallyjudge.core.errors import PluginError
+from tallyjudge.interfaces.cache import ScoreCache
+from tallyjudge.interfaces.events import EventSink
 from tallyjudge.interfaces.metrics import MetricSpec
+from tallyjudge.interfaces.storage import StorageBackend
 from tallyjudge.registry.specs import PluginSpec
+
+_BACKEND_CONTRACTS = {
+    "storage": StorageBackend,
+    "cache": ScoreCache,
+    "event": EventSink,
+}
 
 
 def _load(symbol: Any, plugin_id: str) -> Any:
@@ -68,7 +77,7 @@ class PluginRegistry:
         if type(spec.api_version) is not int or spec.api_version != 1:
             raise PluginError(f"Unsupported plugin api_version; expected 1: {spec.id}")
         if (
-            spec.kind not in ("metric", "model", "embedding")
+            spec.kind not in ("metric", "model", "embedding", *_BACKEND_CONTRACTS)
             or kind is not None
             and spec.kind != kind
         ):
@@ -126,7 +135,7 @@ class PluginRegistry:
         factory = _load(spec.factory, spec.id)
         options = (
             {name: getattr(validated, name) for name in schema.model_fields}
-            if spec.kind == "metric"
+            if spec.kind not in ("model", "embedding")
             else {"config": validated}
         )
         try:
@@ -144,6 +153,11 @@ class PluginRegistry:
             ):
                 raise PluginError(
                     f"Factory result does not satisfy the Metric contract: {spec.id}"
+                )
+        elif spec.kind in _BACKEND_CONTRACTS:
+            if not isinstance(plugin, _BACKEND_CONTRACTS[spec.kind]):
+                raise PluginError(
+                    f"Factory result does not match the {spec.kind} contract: {spec.id}"
                 )
         elif (
             not _matches_model(

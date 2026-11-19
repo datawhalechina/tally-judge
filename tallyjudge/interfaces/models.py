@@ -11,7 +11,7 @@ from pydantic import BaseModel, ValidationError
 
 from tallyjudge.core.errors import ModelOutputError
 from tallyjudge.core.prompts import Message, PromptInput
-from tallyjudge.core.usage import RequestRecord, Tracking, UsageSummary
+from tallyjudge.core.usage import RequestCall, RequestRecord, Tracking, UsageSummary
 
 
 @dataclass(frozen=True)
@@ -21,6 +21,7 @@ class GenerationResult[T]:
     data: T
     usage: UsageSummary
     model: str | None = None
+    call_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -30,6 +31,7 @@ class EmbeddingResult:
     vectors: list[list[float]]
     usage: UsageSummary
     model: str | None = None
+    call_id: str | None = None
 
 
 @runtime_checkable
@@ -83,7 +85,7 @@ class LanguageModelBase(ABC):
     ) -> GenerationResult[T]:
         """Return the parsed response and usage from all attempts at this prompt."""
         messages = list(prompt.messages)
-        records: list[RequestRecord] = []
+        records = RequestCall()
         retries_left = self.structured_retries
         while True:
             text, model = await self._acomplete(messages, records)
@@ -115,4 +117,6 @@ class LanguageModelBase(ABC):
                     )
                 )
             else:
-                return GenerationResult(data, UsageSummary.from_records(records), model)
+                return GenerationResult(
+                    data, UsageSummary.from_records(records), model, records.call_id
+                )
