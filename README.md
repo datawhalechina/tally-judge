@@ -19,7 +19,7 @@ cd tally-judge
 python -m pip install .
 ```
 
-默认安装可以运行精确匹配、字符串包含和自定义函数指标。使用字符串距离和段落检索指标时，运行 `python -m pip install ".[text-distance]"` 安装 RapidFuzz。使用 OpenAI Python SDK 接入裁判时，运行 `python -m pip install ".[openai]"`。两组依赖可以一起安装。
+默认安装可以运行精确匹配、字符串包含、文档 ID 检索精度与召回，以及自定义函数指标。使用字符串距离或按文本距离匹配段落时，运行 `python -m pip install ".[text-distance]"` 安装 RapidFuzz。使用 OpenAI Python SDK 接入裁判时，运行 `python -m pip install ".[openai]"`。两组依赖可以一起安装。
 
 ## 用参考答案给一批回答评分
 
@@ -96,6 +96,8 @@ asyncio.run(main())
 | `metric.rag.faithfulness` | `user_input`、`response`、`retrieved_contexts` | 用裁判模型计算有检索依据的陈述占比。检索资料按段落传入字符串列表。 |
 | `metric.rag.answer_relevance` | `user_input`、`response` | 裁判模型根据回答反推问题，再用嵌入模型衡量这些问题与原问题的相似度。 |
 | `metric.text.string_similarity` | `response`、`reference` | 归一化字符串相似度，默认使用 Levenshtein，范围 0 至 1。 |
+| `metric.retrieval.id_context_precision` | `retrieved_context_ids`、`reference_context_ids` | 命中的不同文档数占检索文档数的比例，检索 ID 为空时无定义。无需模型。 |
+| `metric.retrieval.id_context_recall` | 同上 | 命中的不同文档数占参考文档数的比例，参考 ID 为空时无定义。整数和同值字符串 ID 视作同一份文档。 |
 | `metric.retrieval.text_context_precision` | `retrieved_contexts`、`reference_contexts` | 按返回顺序匹配段落，在命中位置计算平均精度。 |
 | `metric.retrieval.text_context_recall` | 同上 | 参考段落被命中的比例。参考列表为空时，结果标记为未定义。 |
 | `metric.custom.numeric` | `response` | 按 `criteria` 输出指定范围的数值，或从给定整数等级中投票。 |

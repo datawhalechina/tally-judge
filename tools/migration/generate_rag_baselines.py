@@ -15,6 +15,9 @@ from pathlib import Path
 
 os.environ["RAGAS_DO_NOT_TRACK"] = "true"
 
+from ragas.dataset_schema import SingleTurnSample
+from ragas.metrics._context_precision import IDBasedContextPrecision
+from ragas.metrics._context_recall import IDBasedContextRecall
 from ragas.embeddings.base import BaseRagasEmbedding
 from ragas.llms.base import InstructorBaseRagasLLM
 from ragas.metrics.collections.answer_relevancy.metric import AnswerRelevancy
@@ -67,6 +70,9 @@ class Embeddings(BaseRagasEmbedding):
     async def aembed_texts(self, texts, **kwargs):
         self.calls.append({"embed": texts})
         return [self.vectors[text] for text in texts]
+
+
+ID_METRICS = {"id_context_precision": IDBasedContextPrecision, "id_context_recall": IDBasedContextRecall}
 
 
 def cases():
@@ -124,10 +130,34 @@ def cases():
             vectors,
         )
 
+    for name, retrieved, reference in (
+        ("duplicate_rank", ["B", "A", "A"], ["A", "C", "D"]),
+        ("reordered", ["A", "B", "A"], ["D", "A", "C", "C"]),
+        ("mixed_ids", [1, "1", "01", 2], ["1", 2, "2"]),
+        ("no_overlap", ["A"], ["B"]),
+        ("empty_retrieval", [], ["A"]),
+        ("empty_reference", ["A"], []),
+        ("both_empty", [], []),
+    ):
+        for metric_id in ID_METRICS:
+            yield metric_id, name, dict(retrieved_context_ids=retrieved, reference_context_ids=reference), [], {}
+
+
+async def legacy_score(metric_id, inputs, replies, vectors, judge, calls):
+    if metric_id in ID_METRICS:
+        return await ID_METRICS[metric_id]().single_turn_ascore(SingleTurnSample(**inputs))
+    if metric_id == "faithfulness":
+        metric = Faithfulness(llm=judge)
+    else:
+        metric = AnswerRelevancy(llm=judge, embeddings=Embeddings(vectors, calls), strictness=len(replies))
+    return (await metric.ascore(**inputs)).value
+
 
 async def generate(source_root):
     hashes = {}
     for cls in (
+        SingleTurnSample,
+        *ID_METRICS.values(),
         Faithfulness,
         AnswerRelevancy,
         StatementGeneratorPrompt,
@@ -159,19 +189,10 @@ async def generate(source_root):
     for metric_id, name, inputs, replies, vectors in cases():
         calls = []
         judge = Judge(replies, calls, result["prompts"])
-        metric = (
-            Faithfulness(llm=judge)
-            if metric_id == "faithfulness"
-            else AnswerRelevancy(
-                llm=judge,
-                embeddings=Embeddings(vectors, calls),
-                strictness=len(replies),
-            )
-        )
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", RuntimeWarning)
-                score = (await metric.ascore(**inputs)).value
+                score = await legacy_score(metric_id, inputs, replies, vectors, judge, calls)
             old = (
                 {"value": score} if math.isfinite(score) else {"nonfinite": str(score)}
             )
@@ -186,7 +207,11 @@ async def generate(source_root):
                 vectors=vectors,
                 calls=calls,
                 old=old,
-                intentional_difference=INTENTIONAL_DIFFERENCES.get(name),
+                intentional_difference=(
+                    {"status": "undefined", "reason": "no_retrieved_ids" if metric_id == "id_context_precision" else "no_reference_ids"}
+                    if metric_id in ID_METRICS and "nonfinite" in old
+                    else INTENTIONAL_DIFFERENCES.get(name)
+                ),
             )
         )
     return result

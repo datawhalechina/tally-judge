@@ -40,6 +40,18 @@ BUILTINS = (
         install_extra="text-distance",
     ),
     PluginSpec(
+        "metric.retrieval.id_context_precision",
+        "metric",
+        1,
+        "tallyjudge.plugins.metrics.retrieval.id_context_precision:IdContextPrecisionMetric",
+    ),
+    PluginSpec(
+        "metric.retrieval.id_context_recall",
+        "metric",
+        1,
+        "tallyjudge.plugins.metrics.retrieval.id_context_recall:IdContextRecallMetric",
+    ),
+    PluginSpec(
         "metric.retrieval.text_context_precision",
         "metric",
         1,
