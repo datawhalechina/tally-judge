@@ -206,7 +206,7 @@ async def test_cancelled_row_saves_only_observed_usage_and_emits_no_late_events(
 async def test_timed_out_score_never_populates_cache_and_inputs_are_part_of_key(
     tmp_path,
 ):
-    release = asyncio.Event()
+    release, finished = asyncio.Event(), asyncio.Event()
     calls = []
 
     @numeric_metric("metric.test.delay", revision="1")
@@ -216,6 +216,7 @@ async def test_timed_out_score_never_populates_cache_and_inputs_are_part_of_key(
             await release.wait()
         except asyncio.CancelledError:
             await release.wait()
+        finished.set()
         return 1.0
 
     cache = create_cache_backend(
@@ -223,7 +224,7 @@ async def test_timed_out_score_never_populates_cache_and_inputs_are_part_of_key(
     )
     runner = Evaluator(
         [score()],
-        config=ExecutionConfig(timeout=0.03, cleanup_timeout=0.02),
+        config=ExecutionConfig(timeout=0.5, cleanup_timeout=0.02),
         cache=cache,
     )
 
@@ -238,10 +239,13 @@ async def test_timed_out_score_never_populates_cache_and_inputs_are_part_of_key(
         )
     finally:
         release.set()
-        await asyncio.sleep(0)
+    await asyncio.wait_for(finished.wait(), 2)
+    # Only the first run tests a deadline. Disk latency must not time out the cache checks.
+    cached = Evaluator([score()], cache=cache)
     for value, hit in [("old", False), ("old", True), ("new", False)]:
-        result = await runner.arun(data(value))
-        assert result.rows[0].metrics[score.spec.id].cache_hit is hit
+        result = await cached.arun(data(value))
+        outcome = result.rows[0].metrics[score.spec.id]
+        assert (outcome.status, outcome.cache_hit) == ("success", hit)
     assert calls == ["old", "old", "new"]
 
 
