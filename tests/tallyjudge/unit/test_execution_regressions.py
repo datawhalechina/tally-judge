@@ -221,7 +221,8 @@ class Stubborn(MetricBase):
                 await asyncio.sleep(60)
             except asyncio.CancelledError:
                 pass
-report = Evaluator([Stubborn()], config=ExecutionConfig(timeout=0.01, cleanup_timeout=0.02)).run(Dataset.from_records([{'response': 'x'}]))
+# Leave time for the child process to enter the scorer before testing its refusal to cancel.
+report = Evaluator([Stubborn()], config=ExecutionConfig(timeout=0.2, cleanup_timeout=0.02)).run(Dataset.from_records([{'response': 'x'}]))
 assert report.rows[0].metrics['metric.test.stubborn'].status == 'timeout'
 assert len(report.cleanup_warnings) == 1
 print('returned')
