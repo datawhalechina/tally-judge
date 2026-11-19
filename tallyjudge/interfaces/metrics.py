@@ -5,9 +5,10 @@ from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Any, Literal, Protocol
+from typing import Annotated, Any, Literal, Protocol, get_origin
 
 from pydantic import TypeAdapter, ValidationError
+from pydantic.fields import FieldInfo
 
 from tallyjudge.core.errors import InputValidationError
 from tallyjudge.core.results import MetricResult
@@ -69,16 +70,25 @@ class Metric(Protocol):
     def config_snapshot(self) -> dict[str, Any]: ...
 
 
+def _expected(annotation: Any) -> str:
+    prefix = ""
+    if get_origin(annotation) is Annotated:
+        field = FieldInfo.from_annotation(annotation)
+        annotation = field.annotation
+        if any(getattr(item, "min_length", None) == 1 for item in field.metadata):
+            prefix = "non-empty "
+    return prefix + (
+        annotation.__name__ if isinstance(annotation, type) else str(annotation)
+    )
+
+
 def validate_inputs(spec: MetricSpec, inputs: Mapping[str, Any]) -> dict[str, Any]:
     """Return the strictly validated parameter values that the scorer will receive."""
     values = {}
     for name, annotation in spec.inputs.items():
-        expected = (
-            annotation.__name__ if isinstance(annotation, type) else str(annotation)
-        )
         if name not in inputs:
             raise InputValidationError(
-                "Missing metric input field", field=name, expected=expected
+                "Missing metric input field", field=name, expected=_expected(annotation)
             )
         try:
             values[name] = spec._adapters[name].validate_python(
@@ -88,7 +98,7 @@ def validate_inputs(spec: MetricSpec, inputs: Mapping[str, Any]) -> dict[str, An
             raise InputValidationError(
                 "Metric input type does not match its specification",
                 field=name,
-                expected=expected,
+                expected=_expected(annotation),
             ) from exc
     if set(inputs) - set(spec.inputs):
         raise InputValidationError("Unexpected metric input fields")
@@ -105,8 +115,12 @@ class MetricBase(ABC):
         """Compute one score from typed arguments."""
 
     async def ascore_inputs(self, inputs: Mapping[str, Any]) -> MetricResult:
-        """Validate a mapping against spec and pass the resulting values to ascore."""
-        return await self.ascore(**validate_inputs(self.spec, inputs))
+        """Validate a mapping once before scoring its named parameters."""
+        return await self._ascore_validated(**validate_inputs(self.spec, inputs))
+
+    async def _ascore_validated(self, *args: Any, **kwargs: Any) -> MetricResult:
+        """Default to the typed scorer for plugins that implement ascore directly."""
+        return await self.ascore(*args, **kwargs)
 
     def config_snapshot(self) -> dict[str, Any]:
         return {}

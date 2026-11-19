@@ -1,0 +1,1 @@
+"""Package-provided embedding plugins."""
