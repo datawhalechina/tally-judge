@@ -20,6 +20,7 @@ from ragas.metrics._context_precision import IDBasedContextPrecision
 from ragas.metrics._context_recall import IDBasedContextRecall
 from ragas.embeddings.base import BaseRagasEmbedding
 from ragas.llms.base import InstructorBaseRagasLLM
+from ragas.metrics.collections._semantic_similarity import SemanticSimilarity
 from ragas.metrics.collections.context_recall.metric import ContextRecall
 from ragas.metrics.collections.context_recall.util import ContextRecallPrompt
 from ragas.metrics.collections.context_precision.metric import ContextPrecisionWithReference, ContextPrecisionWithoutReference
@@ -36,6 +37,7 @@ ANSWER = "巴黎。"
 
 # Expected TallyJudge outcomes for cases where the upstream scorer raised or returned NaN.
 INTENTIONAL_DIFFERENCES = {
+    "bad:None": {"status": "error", "reason": "invalid_embedding"},
     "no_classifications": {"status": "undefined", "reason": "no_classifications"},
     "no_relevant_contexts": {"status": "undefined", "reason": "no_relevant_contexts"},
     "empty_passages": {"status": "error", "reason": "validation_error"},
@@ -182,10 +184,21 @@ def cases():
         yield "context_recall", name, inputs, [{"classifications": items}] if passages else [], {}
 
 
-async def legacy_score(metric_id, inputs, replies, vectors, judge, calls):
+def configured_cases():
+    for case in cases():
+        yield (*case, {})
+    vectors = {"X": [1.0, 0.0], "Y": [0.0, 1.0], "-X": [-1.0, 0.0], "Z": [0.0, 0.0], " ": [1.0, 0.0], "bad": [1.0]}
+    for text, threshold in (("X", None), ("Y", None), ("-X", None), ("Y", 0.0), ("-X", 0.0), ("X", 1.0), ("Z", None), ("Z", 0.0), ("", None), ("bad", None)):
+        name = "zero_vector" if text == "Z" else f"{text or 'blank'}:{threshold}"
+        yield "semantic_similarity", name, {"reference": "X", "response": text}, [], vectors, {"threshold": threshold}
+
+
+async def legacy_score(metric_id, inputs, replies, vectors, judge, calls, settings):
     if metric_id in ID_METRICS:
         return await ID_METRICS[metric_id]().single_turn_ascore(SingleTurnSample(**inputs))
-    if metric_id in CONTEXT_METRICS:
+    if metric_id == "semantic_similarity":
+        metric = SemanticSimilarity(embeddings=Embeddings(vectors, calls), **settings)
+    elif metric_id in CONTEXT_METRICS:
         metric = CONTEXT_METRICS[metric_id](llm=judge)
     elif metric_id == "faithfulness":
         metric = Faithfulness(llm=judge)
@@ -197,6 +210,7 @@ async def legacy_score(metric_id, inputs, replies, vectors, judge, calls):
 async def generate(source_root):
     hashes = {}
     for cls in (
+        SemanticSimilarity,
         SingleTurnSample,
         *ID_METRICS.values(),
         *CONTEXT_METRICS.values(),
@@ -230,13 +244,13 @@ async def generate(source_root):
         "prompts": {},
         "cases": [],
     }
-    for metric_id, name, inputs, replies, vectors in cases():
+    for metric_id, name, inputs, replies, vectors, settings in configured_cases():
         calls = []
         judge = Judge(replies, calls, result["prompts"])
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", RuntimeWarning)
-                score = await legacy_score(metric_id, inputs, replies, vectors, judge, calls)
+                score = await legacy_score(metric_id, inputs, replies, vectors, judge, calls, settings)
             old = (
                 {"value": score} if math.isfinite(score) else {"nonfinite": str(score)}
             )
@@ -248,6 +262,7 @@ async def generate(source_root):
                 name=name,
                 inputs=inputs,
                 replies=replies,
+                settings=settings,
                 vectors=vectors,
                 calls=calls,
                 old=old,

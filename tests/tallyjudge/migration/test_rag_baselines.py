@@ -177,6 +177,53 @@ async def test_archived_context_recall(passages, bits, expected, judge, client):
     assert_calls(client, ["recall_ranked" if passages[0] else "recall_blank"])
 
 
+@pytest.mark.parametrize(
+    ("response", "threshold", "expected"),
+    [
+        ("X", None, 1.0),
+        ("Y", None, 0.0),
+        ("-X", None, -1.0),
+        ("Y", 0.0, 1.0),
+        ("-X", 0.0, 0.0),
+        ("X", 1.0, 1.0),
+        ("Z", None, "zero_norm_embedding"),
+        ("Z", 0.0, "zero_norm_embedding"),
+        ("", None, 1.0),
+        ("bad", None, "invalid_embedding"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_archived_semantic_similarity(response, threshold, expected, client):
+    vectors = {
+        "X": [1.0, 0.0],
+        "Y": [0.0, 1.0],
+        "-X": [-1.0, 0.0],
+        "Z": [0.0, 0.0],
+        " ": [1.0, 0.0],
+        "bad": [1.0],
+    }
+    embeddings = create_embedding_model(
+        "embedding.openai_compatible.embeddings", client=client, model="fixture"
+    )
+    metric = create_metric(
+        "metric.text.semantic_similarity", embeddings=embeddings, threshold=threshold
+    )
+    client.embedding_reply([(0, vectors["X"])])
+    client.embedding_reply([(0, vectors[response or " "])])
+    score = await evaluate(metric, {"reference": "X", "response": response})
+    if isinstance(expected, str):
+        status = "undefined" if expected == "zero_norm_embedding" else "error"
+        assert (score.status, score.value, score.error.code) == (status, None, expected)
+    else:
+        assert (score.status, score.value) == ("success", expected)
+    assert (
+        score.usage.embedding.requests
+        == score.usage.embedding.requests_without_usage
+        == 2
+    )
+    assert_calls(client, [], [["X"], [response or " "]])
+
+
 def assert_prompt(text, name):
     raw, normalized = PROMPTS[name]
     if pydantic.__version__ == "2.14.3":

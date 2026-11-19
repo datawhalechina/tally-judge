@@ -5,12 +5,13 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, Field
 
-from tallyjudge.core.errors import ModelOutputError, UndefinedScore
+from tallyjudge.core.errors import ModelOutputError
 from tallyjudge.core.prompts import StructuredPrompt
 from tallyjudge.core.results import MetricResult
 from tallyjudge.core.usage import mark_usage_source
 from tallyjudge.interfaces.metrics import MetricBase, MetricSpec
 from tallyjudge.interfaces.models import EmbeddingModel, LanguageModel
+from tallyjudge.plugins.metrics._cosine import unit_vector
 
 
 class AnswerRelevanceInput(BaseModel):
@@ -78,18 +79,6 @@ class AnswerRelevanceConfig(BaseModel):
     strictness: int = Field(default=3, gt=0)
 
 
-def _unit(vector: list[float]) -> list[float]:
-    if not vector or not all(math.isfinite(v) for v in vector):
-        raise ModelOutputError("invalid_embedding")
-    scale = max(map(abs, vector))
-    if scale == 0:
-        raise UndefinedScore("zero_norm_embedding")
-    # Scaling before the norm also handles finite components whose norm would overflow.
-    scaled = [v / scale for v in vector]
-    norm = math.hypot(*scaled)
-    return [v / norm for v in scaled]
-
-
 class AnswerRelevanceMetric(MetricBase):
     """Compare the original question with questions inferred from the answer."""
 
@@ -155,9 +144,9 @@ class AnswerRelevanceMetric(MetricBase):
             or any(len(v) != len(original[0]) for v in generated)
         ):
             raise ModelOutputError("invalid_embedding")
-        direction = _unit(original[0])
+        direction = unit_vector(original[0])
         similarities = [
-            math.fsum(a * b for a, b in zip(direction, _unit(v), strict=True))
+            math.fsum(a * b for a, b in zip(direction, unit_vector(v), strict=True))
             for v in generated
         ]
         value = math.fsum(similarities) / len(similarities) * int(not all(flags))

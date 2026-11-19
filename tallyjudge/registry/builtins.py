@@ -52,6 +52,15 @@ BUILTINS = (
         dependencies={"llm": "language_model"},
     ),
     PluginSpec(
+        "metric.text.semantic_similarity",
+        "metric",
+        1,
+        "tallyjudge.plugins.metrics.text.semantic_similarity:SemanticSimilarityMetric",
+        config_type="tallyjudge.plugins.metrics.text.semantic_similarity:SemanticSimilarityConfig",
+        dependencies={"embeddings": "embedding_model"},
+        factory_validates_config=True,
+    ),
+    PluginSpec(
         "metric.text.string_similarity",
         "metric",
         1,
