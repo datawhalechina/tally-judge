@@ -26,11 +26,12 @@ assert {spec.id for spec in registry.list(kind='storage')} == {'storage.local.me
 assert {spec.id for spec in registry.list(kind='cache')} == {'cache.local.sqlite'}
 assert {spec.id for spec in registry.list(kind='event')} == {'event.local.jsonl'}
 assert not any(name.startswith('tallyjudge.plugins.') for name in sys.modules)
+settings = {'metric.custom.numeric': {'criteria': 'quality'}, 'metric.custom.categorical': {'criteria': 'quality', 'labels': ['yes', 'no']}}
 for plugin in registry.list(kind='metric'):
-    assert registry.describe(plugin.id).id == plugin.id
-    if not plugin.dependencies:
+    assert registry.describe(plugin.id, **settings.get(plugin.id, {})).id == plugin.id
+    if not plugin.dependencies and not plugin.required_distributions:
         assert registry.create(plugin.id).spec.id == plugin.id
-assert not {'ragas', 'langchain', 'langchain_core', 'openai', 'instructor', 'PIL', 'networkx', 'sknetwork'}.intersection(sys.modules)
+assert not {'rapidfuzz', 'ragas', 'langchain', 'langchain_core', 'openai', 'instructor', 'PIL', 'networkx', 'sknetwork'}.intersection(sys.modules)
 """
     process = subprocess.run(
         [sys.executable, "-c", code], capture_output=True, text=True
@@ -45,7 +46,9 @@ def test_registry_failures_and_explicit_replace():
     with pytest.raises(PluginError, match="already registered"):
         registry.register(BUILTINS[0])
     registry.register(BUILTINS[0], replace=True)
-    assert len(registry.list(kind="metric")) == 4
+    assert len(registry.list(kind="metric")) == len(
+        [spec for spec in BUILTINS if spec.kind == "metric"]
+    )
     assert len(registry.list(kind="model")) == 1
     with pytest.raises(PluginError, match="configuration"):
         registry.create(BUILTINS[0].id, model="unexpected")

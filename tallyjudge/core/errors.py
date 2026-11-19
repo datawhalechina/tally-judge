@@ -65,3 +65,7 @@ class UndefinedScore(ValueError):
     def __init__(self, code: str) -> None:
         super().__init__(code)
         self.code = code
+
+
+class UsageScopeClosed(RuntimeError):
+    """A finished score can no longer start a model request."""

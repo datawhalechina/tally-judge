@@ -4,8 +4,9 @@ import copy
 import hashlib
 import json
 import math
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field, replace
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, TypeGuard
 
 from pydantic import TypeAdapter
 
@@ -227,14 +228,43 @@ class RunResult:
 _RUN_SCHEMA = TypeAdapter(RunResult)
 
 
+def numeric_score_is_valid(
+    value: object, bounds: Sequence[float | None], levels: Sequence[int]
+) -> TypeGuard[float]:
+    """Apply a numeric binding's continuous bounds and optional discrete scale."""
+    low, high = bounds
+    return (
+        isinstance(value, float)
+        and math.isfinite(value)
+        and (low is None or value >= low)
+        and (high is None or value <= high)
+        and (not levels or value in levels)
+    )
+
+
+def stored_value_range(binding: dict[str, Any]) -> list[float | None] | None:
+    """Read the binding's range, including the original function-metric v2 format."""
+    if "value_range" in binding:
+        return binding["value_range"]
+    config = binding.get("config_snapshot", {})
+    # Early function snapshots contained only the bounds; later ones added the function path.
+    if config.keys() <= {"function", "value_range"}:
+        return config.get("value_range")
+    return None
+
+
 def _stored_value_is_valid(
     value: Any, output_type: type, binding: dict[str, Any]
 ) -> bool:
     """Apply the saved binding's output contract to an archived successful score."""
+    if output_type is float:
+        return numeric_score_is_valid(
+            value,
+            stored_value_range(binding) or (None, None),
+            binding.get("levels", ()),
+        )
     if not isinstance(value, output_type):
         return False
-    if output_type is float:
-        return math.isfinite(value)
     if output_type is str:
         labels = binding.get("labels")
         return isinstance(labels, list) and value in labels
@@ -248,12 +278,14 @@ class RunCollector:
     def __init__(self) -> None:
         self._result: RunResult | None = None
         self._active = False
+        self._cleanup_deadline: float | None = None
 
     def _start(self, result: RunResult) -> None:
         if self._active:
             raise ValueError("RunCollector is already collecting another run")
         self._result = result
         self._active = True
+        self._cleanup_deadline = None
 
     def _finish(self) -> None:
         self._active = False

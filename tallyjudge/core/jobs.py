@@ -5,7 +5,6 @@ import hashlib
 import inspect
 import json
 import logging
-import math
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
@@ -18,6 +17,7 @@ from tallyjudge.core.errors import (
     ModelError,
     ModelOutputError,
     UndefinedScore,
+    UsageScopeClosed,
 )
 from tallyjudge.core.events import RunEvents
 from tallyjudge.core.results import (
@@ -26,8 +26,9 @@ from tallyjudge.core.results import (
     RowResult,
     RowTaskResult,
     ScoreResult,
+    numeric_score_is_valid,
 )
-from tallyjudge.core.usage import UsageScope, UsageScopeClosed
+from tallyjudge.core.usage import UsageScope
 from tallyjudge.interfaces.cache import ScoreCache
 from tallyjudge.interfaces.metrics import MetricBinding, MetricSpec
 
@@ -47,10 +48,7 @@ def validate_output(output: Any, spec: MetricSpec) -> ScoreResult:
         return invalid
     value = output.value
     if spec.output_type is float:
-        if not isinstance(value, float) or not math.isfinite(value):
-            return invalid
-        low, high = spec.value_range
-        if (low is not None and value < low) or (high is not None and value > high):
+        if not numeric_score_is_valid(value, spec.value_range, spec.levels):
             return invalid
         value = float(value)
     elif spec.output_type is str:
@@ -200,7 +198,12 @@ class MetricJob(Job[ScoreResult]):
             return None
         # The binding key, column mapping and case ID do not change a score, so they
         # are excluded: renaming a binding or re-keying a dataset still reuses it.
-        scoring = {k: v for k, v in self.metadata.items() if k != "input_map"}
+        # Archive bounds validate cached values on read. Keep earlier cache keys usable.
+        scoring = {
+            k: v
+            for k, v in self.metadata.items()
+            if k not in ("input_map", "value_range")
+        }
         key = _digest([cache.namespace, scoring, self.inputs_sha256])
         self.cache_key = key
         if key is None:
@@ -304,6 +307,8 @@ class ExperimentJob(Job[RowTaskResult]):
             if not isinstance(output, dict):
                 raise TypeError("An experiment must return a JSON object or None")
             return RowTaskResult("success", json.loads(canonical_json(output)))
+        except (UsageScopeClosed, ClientLoopError):
+            raise
         except Exception as exc:
             logger.exception(
                 "Experiment function failed: input_index=%d", self.row.input_index

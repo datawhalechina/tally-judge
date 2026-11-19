@@ -49,6 +49,7 @@ def test_empty_and_private_json_roundtrip():
             "id": metric.spec.id,
             "revision": "1",
             "output_kind": "numeric",
+            "value_range": [0.0, 1.0],
             "input_map": {"response": "answer", "reference": "reference"},
             "config_snapshot": {},
         }

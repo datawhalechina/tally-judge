@@ -25,7 +25,7 @@ def test_import_is_independent_of_legacy_and_provider_packages():
     assert process.returncode == 0, process.stdout + process.stderr
 
 
-def verify_wheel(wheel_dir: Path) -> None:
+def verify_wheel(wheel_dir: Path, *, text_distance: bool = False) -> None:
     wheels = list(wheel_dir.resolve().glob("tallyjudge-*.whl"))
     if len(wheels) != 1:
         raise RuntimeError("Expected exactly one TallyJudge wheel in wheel-dir")
@@ -46,13 +46,28 @@ def verify_wheel(wheel_dir: Path) -> None:
         )
         python = venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
         subprocess.run(
-            ["uv", "pip", "install", "--python", str(python), str(wheels[0])],
+            [
+                "uv",
+                "pip",
+                "install",
+                "--python",
+                str(python),
+                f"tallyjudge[text-distance] @ {wheels[0].as_uri()}"
+                if text_distance
+                else str(wheels[0]),
+            ],
             cwd=directory,
             env=env,
             check=True,
         )
         subprocess.run(
-            [str(python), "-I", str(PROBE), str(checkout)],
+            [
+                str(python),
+                "-I",
+                str(PROBE),
+                str(checkout),
+                "text-distance" if text_distance else "base",
+            ],
             cwd=directory,
             env=env,
             check=True,
@@ -62,4 +77,10 @@ def verify_wheel(wheel_dir: Path) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--wheel-dir", required=True, type=Path)
-    verify_wheel(parser.parse_args().wheel_dir)
+    parser.add_argument(
+        "--text-distance",
+        action="store_true",
+        help="Install and verify the optional text metrics",
+    )
+    args = parser.parse_args()
+    verify_wheel(args.wheel_dir, text_distance=args.text_distance)

@@ -1,13 +1,15 @@
 """Count actual requests and freeze the observed token usage at a score's deadline."""
 
 import asyncio
-from collections.abc import Iterator, Sequence
+from collections.abc import Coroutine, Iterator, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 from uuid import uuid4
 
+from tallyjudge.core._tasks import detach_task
+from tallyjudge.core.errors import UsageScopeClosed
 from tallyjudge.core.events import RunEvents
 
 type RequestKind = Literal["generation", "embedding"]
@@ -142,14 +144,30 @@ class RequestCall(list[RequestRecord]):
         )
 
 
-class UsageScopeClosed(RuntimeError):
-    """A finished score can no longer start a model request."""
+async def run_scoped_score[T](work: Coroutine[Any, Any, T]) -> T:
+    """Give a standalone model score the same request boundary as a scheduled row."""
+    if _scope.get() is not None:
+        return await work
+    scope = UsageScope()
+    with scope.activate():
+        task = asyncio.create_task(work)
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        # Even a transport that returns after cancellation cannot start the next request.
+        scope.sealed = True
+        task.cancel()
+        detach_task(task)
+        raise
 
 
 def mark_usage_source(kind: RequestKind, plugin_id: str, tracking: Tracking) -> None:
     scope = _scope.get()
-    if scope is not None and tracking == "untracked" and not scope.sealed:
-        scope.untracked[kind].add(plugin_id)
+    if scope is not None:
+        if scope.sealed:
+            raise UsageScopeClosed("The score has already reached its terminal state")
+        if tracking == "untracked":
+            scope.untracked[kind].add(plugin_id)
 
 
 @contextmanager

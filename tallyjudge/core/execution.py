@@ -9,6 +9,7 @@ from dataclasses import asdict
 from typing import Any
 from uuid import uuid4
 
+from tallyjudge.core._tasks import consume_task, detach_task, detached_tasks
 from tallyjudge.core.config import ExecutionConfig
 from tallyjudge.core.dataset import Dataset
 from tallyjudge.core.errors import ClientLoopError, EvaluationAborted
@@ -28,28 +29,6 @@ from tallyjudge.interfaces.events import EventSink
 from tallyjudge.interfaces.metrics import MetricBinding
 
 logger = logging.getLogger(__name__)
-
-
-def _detached_tasks(loop: asyncio.AbstractEventLoop) -> set[asyncio.Task[Any]]:
-    # A process-wide set would retain closed loops through Task.get_loop().
-    return vars(loop).setdefault("_tallyjudge_detached_tasks", set())
-
-
-def _consume(task: asyncio.Task[Any]) -> None:
-    if not task.cancelled():
-        error = task.exception()
-        if error is not None:
-            logger.error(
-                "Background task failed after cleanup",
-                exc_info=(type(error), error, error.__traceback__),
-            )
-
-
-def _detach(task: asyncio.Task[Any]) -> None:
-    detached = _detached_tasks(task.get_loop())
-    detached.add(task)
-    task.add_done_callback(detached.discard)
-    task.add_done_callback(_consume)
 
 
 def run_sync[T](
@@ -72,7 +51,7 @@ def run_sync[T](
     try:
         return loop.run_until_complete(factory())
     finally:
-        detached = _detached_tasks(loop)
+        detached = detached_tasks(loop)
         pending = asyncio.all_tasks(loop) - detached
         for task in pending:
             task.cancel()
@@ -81,7 +60,7 @@ def run_sync[T](
                 asyncio.wait(pending, timeout=cleanup_timeout)
             )
             for task in done:
-                _consume(task)
+                consume_task(task)
             if unfinished:
                 logger.warning(
                     "Synchronous loop shutdown left %d unfinished tasks",
@@ -95,7 +74,7 @@ def run_sync[T](
             asyncio.wait(finalizers, timeout=cleanup_timeout)
         )
         for task in done:
-            _consume(task)
+            consume_task(task)
         for task in unfinished:
             task.cancel()
         # Closing a loop discards pending coroutine work; it cannot kill SDK threads.
@@ -213,6 +192,7 @@ class TaskRunner:
                 (end for _, end in cleaning.values()),
                 default=loop.time() + config.cleanup_timeout,
             )
+            collector._cleanup_deadline = until
             for task, (job, _) in cleaning.items():
                 cleaning[task] = (job, until)
             for task, job in tuple(active.items()):
@@ -248,7 +228,7 @@ class TaskRunner:
                     for task in done:
                         if task in cleaning:
                             del cleaning[task]
-                            _consume(task)
+                            consume_task(task)
                         else:
                             job = active.pop(task)
                             status = job.finish(task)
@@ -272,7 +252,7 @@ class TaskRunner:
                             stop("stopped", "cleanup_timeout")
                         while cleaning:
                             task, (job, _) = cleaning.popitem()
-                            _detach(task)
+                            detach_task(task)
                             result.cleanup_warnings.append(
                                 CleanupWarning(
                                     job.row.case_id,
@@ -300,15 +280,30 @@ class TaskRunner:
                         stop("aborted", reason)
 
             try:
-                await _drain(cache_writes, config.cleanup_timeout)
+                deadline = collector._cleanup_deadline
+                await _drain(
+                    cache_writes,
+                    config.cleanup_timeout
+                    if deadline is None
+                    else max(0.0, deadline - loop.time()),
+                )
             except asyncio.CancelledError as exc:
                 # Results are final; a late cancellation only skips waiting for cache I/O.
                 if error is None:
                     error = exc
+                    stop("cancelled", "external_cancel")
             result.run_status, result.stop_reason = stopping or ("completed", None)
-            if isinstance(error, asyncio.CancelledError) and stopping is None:
-                result.run_status, result.stop_reason = "cancelled", "external_cancel"
             events.emit("run_finished", status=result.run_status)
+            try:
+                await events.flush(collector._cleanup_deadline)
+            except asyncio.CancelledError as exc:
+                # The terminal event already identifies the scoring outcome.
+                if error is None:
+                    error = exc
+                    if collector._cleanup_deadline is None:
+                        collector._cleanup_deadline = (
+                            loop.time() + config.cleanup_timeout
+                        )
             result.events_complete = events.complete
             if error is not None:
                 raise error

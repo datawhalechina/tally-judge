@@ -214,7 +214,8 @@ async def test_invalid_outputs_do_not_abort(policy):
 
 @pytest.mark.asyncio
 async def test_timeout_record_and_raise():
-    config = ExecutionConfig(max_concurrency=1, timeout=0.01)
+    # The plugin-raised TimeoutError must finish well before the scheduler's deadline.
+    config = ExecutionConfig(max_concurrency=1, timeout=0.2)
     metric = ControlledMetric()
     report = await Evaluator([metric], config=config).arun(
         data("wait", "ok", "timeout_error", "self_cancel")

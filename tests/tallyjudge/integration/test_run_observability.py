@@ -307,3 +307,105 @@ def test_failed_observer_reports_incomplete_events_and_keeps_scores():
         result.run_status == "completed"
         and result.rows[0].metrics["metric.text.exact_match"].value == 1.0
     )
+
+
+@pytest.mark.asyncio
+async def test_cancellation_while_flushing_a_stubborn_event_sink():
+    started, release, finished = (asyncio.Event() for _ in range(3))
+
+    class Buffered(Recorder):
+        async def aflush_run(self, run_id):
+            started.set()
+            try:
+                await asyncio.Future()
+            except asyncio.CancelledError:
+                await release.wait()
+                finished.set()
+
+    sink = Buffered()
+    collector = RunCollector()
+    runner = Evaluator(
+        [create_metric("metric.text.exact_match")],
+        config=ExecutionConfig(cleanup_timeout=0.025),
+        event_sink=sink,
+    )
+    task = asyncio.create_task(
+        runner.arun(
+            Dataset.from_records([{"response": "a", "reference": "a"}]),
+            collector=collector,
+        )
+    )
+    try:
+        await asyncio.wait_for(started.wait(), 1)
+        task.cancel("original")
+        done, _ = await asyncio.wait({task}, timeout=0.3)
+        assert task in done
+        with pytest.raises(asyncio.CancelledError, match="original"):
+            await task
+        snapshot = collector.snapshot()
+        assert snapshot.events_complete is False
+        assert snapshot.rows[0].metrics["metric.text.exact_match"].value == 1.0
+    finally:
+        release.set()
+        if started.is_set():
+            await asyncio.wait_for(finished.wait(), 1)
+
+
+def test_emit_only_sink_can_have_an_unrelated_flush_method():
+    class Stream(Recorder):
+        def flush(self):
+            pytest.fail("synchronous flush belongs to the stream owner")
+
+    sink = Stream()
+    result = Evaluator([create_metric("metric.text.exact_match")], event_sink=sink).run(
+        Dataset.from_records([{"response": "x", "reference": "x"}])
+    )
+    assert result.events_complete is True
+    assert [event.kind for event in sink.events] == [
+        "run_started",
+        "step_started",
+        "step_finished",
+        "run_finished",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_prior_cancellation_deadline_also_bounds_event_delivery():
+    scoring, release, flushing = (asyncio.Event() for _ in range(3))
+
+    @numeric_metric("metric.test.wait_for_cancel", revision="1")
+    async def score(response: str):
+        scoring.set()
+        await asyncio.Future()
+        return 1.0
+
+    class Buffered(Recorder):
+        async def aflush_run(self, run_id):
+            flushing.set()
+            try:
+                await asyncio.Future()
+            except asyncio.CancelledError:
+                await release.wait()
+
+    collector = RunCollector()
+    task = asyncio.create_task(
+        Evaluator(
+            [score()],
+            config=ExecutionConfig(cleanup_timeout=0.03),
+            event_sink=Buffered(),
+        ).arun(Dataset.from_records([{"response": "a"}]), collector=collector)
+    )
+    await asyncio.wait_for(scoring.wait(), 1)
+    task.cancel("user")
+    try:
+        await asyncio.wait_for(flushing.wait(), 1)
+        done, _ = await asyncio.wait({task}, timeout=0.3)
+        assert task in done
+        with pytest.raises(asyncio.CancelledError, match="user"):
+            await task
+        assert (
+            collector.snapshot().run_status,
+            collector.snapshot().events_complete,
+        ) == ("cancelled", False)
+    finally:
+        release.set()

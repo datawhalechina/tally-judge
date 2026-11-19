@@ -4,7 +4,7 @@
   <img src="assets/banner.png" alt="TallyJudge" width="860">
 </p>
 
-TallyJudge 是一个评估检索增强生成（RAG）回答的 Python 库。它可以衡量回答中的说法是否有检索资料支持，以及回答是否切题。有参考答案时，也可以直接在本地做文本匹配。
+TallyJudge 是一个评估检索增强生成（RAG）系统的 Python 库。它可以衡量检索结果与参考段落的匹配程度、回答是否有依据、回答是否切题。你也可以给裁判模型一套自己的评分标准，得到逐条分数、标签和理由。
 
 > [!NOTE]
 > TallyJudge 源自 Ragas，由 Datawhale 社区独立维护，沿用 Apache License 2.0。[Ragas 项目](https://github.com/vibrantlabsai/ragas) · [许可证](LICENSE)
@@ -19,7 +19,7 @@ cd tally-judge
 python -m pip install .
 ```
 
-默认安装只包含本地指标所需的依赖。需要调用裁判模型时，用 `python -m pip install ".[openai]"` 一并安装 OpenAI Python SDK。
+默认安装可以运行精确匹配、字符串包含和自定义函数指标。使用字符串距离和段落检索指标时，运行 `python -m pip install ".[text-distance]"` 安装 RapidFuzz。使用 OpenAI Python SDK 接入裁判时，运行 `python -m pip install ".[openai]"`。两组依赖可以一起安装。
 
 ## 用参考答案给一批回答评分
 
@@ -72,11 +72,11 @@ async def main():
             temperature=0.0,
         )
         faithfulness = create_metric("metric.rag.faithfulness", llm=judge)
-        score = await faithfulness.ascore(
-            user_input="图书馆什么时候开放？",
-            response="图书馆工作日上午九点开放，周末也开放。",
-            retrieved_contexts=["图书馆公告：工作日上午九点开放。"],
-        )
+        score = await faithfulness.ascore_inputs({
+            "user_input": "图书馆什么时候开放？",
+            "response": "图书馆工作日上午九点开放，周末也开放。",
+            "retrieved_contexts": ["图书馆公告：工作日上午九点开放。"],
+        })
         print(score.value)
 
 
@@ -95,8 +95,47 @@ asyncio.run(main())
 | `metric.text.string_presence` | `response`、`reference` | 回答中包含参考文本得 1 分，否则得 0 分。 |
 | `metric.rag.faithfulness` | `user_input`、`response`、`retrieved_contexts` | 用裁判模型计算有检索依据的陈述占比。检索资料按段落传入字符串列表。 |
 | `metric.rag.answer_relevance` | `user_input`、`response` | 裁判模型根据回答反推问题，再用嵌入模型衡量这些问题与原问题的相似度。 |
+| `metric.text.string_similarity` | `response`、`reference` | 归一化字符串相似度，默认使用 Levenshtein，范围 0 至 1。 |
+| `metric.retrieval.text_context_precision` | `retrieved_contexts`、`reference_contexts` | 按返回顺序匹配段落，在命中位置计算平均精度。 |
+| `metric.retrieval.text_context_recall` | 同上 | 参考段落被命中的比例。参考列表为空时，结果标记为未定义。 |
+| `metric.custom.numeric` | `response` | 按 `criteria` 输出指定范围的数值，或从给定整数等级中投票。 |
+| `metric.custom.categorical` | `response` | 按 `criteria` 从 `labels` 中选择标签，汇总每个标签的次数。 |
+| `metric.custom.rubric_without_reference` | `response` | 按固定五档量表评回答，保留分数和反馈。 |
+| `metric.custom.rubric_with_reference` | `response`、`reference` | 结合参考答案，按固定五档量表评回答。 |
+| `metric.custom.instance_rubric` | `response`、`rubrics` | 每条样本提供自己的五档说明，适用于各题评分标准不同的数据集。 |
 
-后续计划增加检索精度、召回率和基于参考答案的正确性评测。
+### 本地评检索结果
+
+把检索器实际返回的段落按原顺序放入 `retrieved_contexts`，把标准证据放入 `reference_contexts`。这个例子找到了两段标准证据中的一段。
+
+```python
+from tallyjudge import Dataset, Evaluator, create_metric
+
+recall = create_metric("metric.retrieval.text_context_recall", threshold=1.0)
+data = Dataset.from_records([{
+    "retrieved_contexts": ["周一闭馆。"],
+    "reference_contexts": ["周一闭馆。", "法定节假日另行通知。"],
+}])
+print(Evaluator([recall]).run(data).rows[0].metrics[recall.spec.id].value)  # 0.5
+```
+
+### 按业务标准判分
+
+在前面示例的 `async with AsyncOpenAI() as client` 内，复用已创建的 `judge`。三票使用相同标准独立判分，得票最多的标签胜出。得票数相同时取最早出现的标签。
+
+```python
+grade = create_metric(
+    "metric.custom.categorical",
+    llm=judge,
+    criteria="回答同时说明退货时限和凭证要求才算完整。",
+    labels=["完整", "部分", "缺失"],
+    strictness=3,
+)
+score = await grade.ascore_inputs({"response": "签收后七天内可申请退货。"})
+print(score.value, score.reason)
+```
+
+数值裁判用 `levels=[0, 1]` 可以做二元投票，连续数值用 `value_range=(0, 10)` 单次评分。固定量表有默认说明，也可以传入含 `score1_description` 至 `score5_description` 五个键的字典。逐行量表从每行的 `rubrics` 字段读取同样的字典。
 
 ## 用自己的函数评分
 

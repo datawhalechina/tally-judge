@@ -23,6 +23,7 @@ class MetricSpec:
     ``defaults`` holds values for optional parameters. Binding validation applies
     them when a row lacks the column, so batch scoring, direct ``ascore_inputs``
     calls and score cache keys all see the same effective arguments.
+    Numeric ``levels`` restrict successful scores to the declared integer grades.
     """
 
     id: str
@@ -35,6 +36,7 @@ class MetricSpec:
     labels: tuple[str, ...] = ()
     ranking_length: int | None = None
     defaults: Mapping[str, Any] = field(default_factory=dict)
+    levels: tuple[int, ...] = ()
 
     @property
     def output_kind(self) -> Literal["numeric", "categorical", "ranking"]:
@@ -81,6 +83,21 @@ class MetricSpec:
             raise ValueError("Metric range bounds must be finite numbers or None")
         if low is not None and high is not None and low > high:
             raise ValueError("Metric value range is reversed")
+        if self.levels:
+            if (
+                self.output_type is not float
+                or any(
+                    type(n) is not int
+                    or (low is not None and n < low)
+                    or (high is not None and n > high)
+                    for n in self.levels
+                )
+                or len(set(self.levels)) != len(self.levels)
+            ):
+                raise ValueError(
+                    "Numeric levels must be distinct integers within the declared range"
+                )
+            object.__setattr__(self, "levels", tuple(self.levels))
         object.__setattr__(self, "inputs", MappingProxyType(dict(self.inputs)))
         if set(self.defaults) - set(self.inputs):
             raise ValueError("Metric defaults must name declared inputs")
@@ -234,7 +251,11 @@ class MetricBinding:
             "input_map": dict(self.input_map),
             "config_snapshot": json.loads(canonical_json(config)),
         }
-        if spec.output_type is str:
+        if spec.output_type is float:
+            metadata["value_range"] = list(spec.value_range)
+            if spec.levels:
+                metadata["levels"] = list(spec.levels)
+        elif spec.output_type is str:
             metadata["labels"] = list(spec.labels)
         elif spec.output_type is list:
             metadata["ranking_length"] = spec.ranking_length

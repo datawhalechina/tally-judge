@@ -14,6 +14,10 @@ class EmptyConfig(BaseModel):
 
 @dataclass(frozen=True)
 class PluginSpec:
+    """A keyword factory and its schema. A factory that validates its own settings
+    can set ``factory_validates_config`` to share that check with direct construction.
+    """
+
     id: str
     kind: str
     api_version: int
@@ -23,6 +27,8 @@ class PluginSpec:
     dependencies: Mapping[
         str, Literal["language_model", "embedding_model", "client"]
     ] = field(default_factory=dict)
+    install_extra: str | None = None
+    factory_validates_config: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(

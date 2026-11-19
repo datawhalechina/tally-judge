@@ -79,12 +79,14 @@ class Evaluator:
                 cache=self.cache,
             )
         except EvaluationAborted as exc:
-            await self._save_partial(exc.partial_result)
+            await self._save_partial(exc.partial_result, collector._cleanup_deadline)
             raise
         except BaseException:
             # Save only a run this call started; a reused collector may hold an older one.
             if collector._result is not previous:
-                await self._save_partial(collector.snapshot())
+                await self._save_partial(
+                    collector.snapshot(), collector._cleanup_deadline
+                )
             raise
         if self.backend is not None:
             try:
@@ -97,13 +99,20 @@ class Evaluator:
                 raise RunSaveError(result) from exc
         return result
 
-    async def _save_partial(self, result: RunResult) -> None:
+    async def _save_partial(self, result: RunResult, deadline: float | None) -> None:
         """Best-effort save while another exception propagates; failures are logged."""
         if self.backend is None or result.run_status == "running":
             return
         try:
-            await asyncio.to_thread(
-                result.save, backend=self.backend, include_inputs=self.include_inputs
+            async with asyncio.timeout_at(deadline):
+                await asyncio.to_thread(
+                    result.save,
+                    backend=self.backend,
+                    include_inputs=self.include_inputs,
+                )
+        except TimeoutError:
+            logger.warning(
+                "Saving partial run %s exceeded cleanup_timeout", result.run_id
             )
         except BaseException:
             # Never replace the original failure or cancellation with a storage error.

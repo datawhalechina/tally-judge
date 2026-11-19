@@ -1,10 +1,12 @@
 """Run-scoped lifecycle events with no sample, prompt or response content."""
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from tallyjudge.interfaces.events import EventSink
+from tallyjudge.core._tasks import detach_task
+from tallyjudge.interfaces.events import BufferedEventSink, EventSink
 
 if TYPE_CHECKING:
     from tallyjudge.core.usage import RequestKind, Usage
@@ -68,3 +70,25 @@ class RunEvents:
             )
             self.complete = False
             self.sink = None
+
+    async def flush(self, deadline: float | None) -> None:
+        """Confirm delivery before the run's cleanup deadline, preserving caller cancellation."""
+        if not isinstance(self.sink, BufferedEventSink):
+            return
+        delivery = asyncio.create_task(self.sink.aflush_run(self.run_id))
+        try:
+            async with asyncio.timeout_at(deadline):
+                await asyncio.wait({delivery})
+        except (TimeoutError, asyncio.CancelledError) as exc:
+            self.complete = False
+            delivery.cancel()
+            detach_task(delivery)
+            logger.warning("Event delivery unconfirmed for run %s", self.run_id)
+            if isinstance(exc, asyncio.CancelledError):
+                raise
+        else:
+            try:
+                delivery.result()
+            except (Exception, asyncio.CancelledError):
+                self.complete = False
+                logger.exception("Event sink failed for run %s", self.run_id)

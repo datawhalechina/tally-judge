@@ -22,6 +22,7 @@ dynamic = ["version", "readme"]
 # Installed by users who call model plugins; the plugins never import it at module level.
 [project.optional-dependencies]
 openai = ["openai>=2,<3"]
+text-distance = ["rapidfuzz>=3,<4"]
 
 [project.scripts]
 tallyjudge = "tallyjudge.cli:main"

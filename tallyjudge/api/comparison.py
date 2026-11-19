@@ -5,7 +5,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from tallyjudge.core.dataset import canonical_json
-from tallyjudge.core.results import RowResult, RunResult, ScoreResult
+from tallyjudge.core.results import (
+    RowResult,
+    RunResult,
+    ScoreResult,
+    stored_value_range,
+)
 
 
 @dataclass(frozen=True)
@@ -117,10 +122,18 @@ def compare_runs(left: RunResult, right: RunResult) -> RunComparison:
         for name, default in (
             ("output_kind", "numeric"),
             ("labels", None),
+            ("levels", None),
             ("ranking_length", None),
         ):
             if not _same(a.get(name, default), b.get(name, default)):
                 changes.append(name)
+        left_range, right_range = stored_value_range(a), stored_value_range(b)
+        if (
+            left_range is not None
+            and right_range is not None
+            and left_range != right_range
+        ):
+            changes.append("value_range")
         binding_changes[key] = tuple(changes)
     rows = []
     for case_id in dict.fromkeys((*before, *after)):
@@ -143,6 +156,15 @@ def compare_runs(left: RunResult, right: RunResult) -> RunComparison:
                 change = _experiment_input_change(left, right, lrow, rrow, key, a, b)
                 if change is not None:
                     settings += (change,)
+            elif (
+                not (changes or settings)
+                and a
+                and b
+                and a.inputs_sha256
+                and b.inputs_sha256
+                and a.inputs_sha256 != b.inputs_sha256
+            ):
+                settings += ("metric_input_changed",)
             delta = None
             if (
                 not (changes or settings)

@@ -19,6 +19,7 @@ from tallyjudge import (
     create_language_model,
     create_metric,
 )
+from tallyjudge.core.errors import PluginError
 from tallyjudge.registry import registry
 
 FAITH = "metric.rag.faithfulness"
@@ -34,6 +35,7 @@ class Client:
                 {"question": "q", "noncommittal": 0},
                 {"statements": []},
                 {"question": "", "noncommittal": 0},
+                {"value": "pass", "reason": "addressed"},
             ]
         )
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.generate))
@@ -98,6 +100,44 @@ async def check_rag():
         m["revision"] == m["config_snapshot"]["prompt_revision"] == "1"
         for m in data["metrics"].values()
     )
+    metric = create_metric(
+        "metric.custom.categorical",
+        llm=judge,
+        criteria="Complete?",
+        labels=["pass", "fail"],
+    )
+    score = await metric.ascore_inputs({"response": "answer"})
+    assert (score.value, score.reason) == ("pass", "addressed")
+
+
+def check_distances(installed):
+    ids = (
+        "metric.text.string_similarity",
+        "metric.retrieval.text_context_precision",
+        "metric.retrieval.text_context_recall",
+    )
+    # Exercise the process worker from the installed wheel outside the source checkout.
+    passage = "文" * 17_000
+    row = {
+        "response": passage,
+        "reference": passage,
+        "retrieved_contexts": [passage],
+        "reference_contexts": [passage],
+    }
+    for key in ids:
+        assert registry.describe(key).id == key
+        if installed:
+            score = Evaluator([create_metric(key)]).run(Dataset.from_records([row]))
+            assert score.rows[0].metrics[key].value == 1.0
+        else:
+            try:
+                create_metric(key)
+            except PluginError as exc:
+                assert all(
+                    part in str(exc) for part in (key, "rapidfuzz", "text-distance")
+                )
+            else:
+                raise AssertionError(f"{key} unexpectedly available without its extra")
 
 
 def check_installation():
@@ -113,9 +153,8 @@ def check_installation():
     }
     assert not any(name.startswith("tallyjudge.plugins.") for name in sys.modules)
     metrics = [
-        create_metric(item.id)
-        for item in registry.list(kind="metric")
-        if not item.dependencies
+        create_metric(key)
+        for key in ("metric.text.exact_match", "metric.text.string_presence")
     ]
     dataset = Dataset.from_records(
         [
@@ -156,6 +195,9 @@ if __name__ == "__main__":
             item.metadata["Name"].lower().replace("_", "-")
             for item in metadata.distributions()
         }
+        with_distance = sys.argv[2] == "text-distance"
+        assert ("rapidfuzz" in installed) == with_distance
+        check_distances(with_distance)
         assert not {
             "ragas",
             "numpy",
