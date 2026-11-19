@@ -26,6 +26,30 @@ RELEVANCE = "metric.rag.answer_relevance"
 # Upstream SHA-256 pairs: exact prompt bytes on Pydantic 2.14.3, then the same
 # prompt with only the JSON Schema's key order and insignificant whitespace normalized.
 PROMPTS = {
+    "ap_reference_first": (
+        "96840e20733611f9525d2b6189aadf433cfd36cf25c4d4e2f80ecfa27721a6af",
+        "0ee87fa8290beca14ce31018cbe648f13bbd2df16d9ece7fd394496e16529c23",
+    ),
+    "ap_reference_second": (
+        "197708eeec8e0699e8803bfc1499ce87bb512e369080b4345e65ba69f1a359d3",
+        "651f4f58681e335b7d212b6052d9a69a2ce93755fafb60f6d3e0f637033c65bd",
+    ),
+    "ap_reference_blank": (
+        "9657dea68f8939f97724f8d164d5dbfa97afbd0a169e9ad46f79311a6014ae91",
+        "bb870973afbf3466a0c4676c7f086bfa5b978e260750c1e3262e1493180cdc6a",
+    ),
+    "ap_response_first": (
+        "99a0441df112183cd658d67b5b1b28b1a0021c06687d2bc04498c8deb8bd5d4f",
+        "a53ebad2175ae8890a65e8af02a4b5118f267e4d382af4eac42ea25a4aef741c",
+    ),
+    "ap_response_second": (
+        "da5cb80e9bb9cb5e25301cc41270bd42b8ba03f7eb1f595c9c653a9552d1320e",
+        "24a44659510a77889404cc453b55e61d4895426e675c302bdd1d750a76fd5dae",
+    ),
+    "ap_response_blank": (
+        "378d973342d636bc1c7d8099c10f1ff272ae4f220f6c86c2fab01c3a55b2c444",
+        "4d1f6c0e5d3f35c787b58918131a55cb00e8b5b88f3d252dd4b58773e8a0b062",
+    ),
     "statements": (
         "cb84d943e48a73f3628d802fab202a3bcf7fb5349f6648566ef54f3ead5ed6e3",
         "16f49260a0982c3d5179f7d25edbcfab9578ef075bce8ae48d1034e919937cb3",
@@ -54,6 +78,48 @@ def judge(client):
 async def evaluate(metric, record):
     result = await Evaluator([metric]).arun(Dataset.from_records([record]))
     return result.rows[0].metrics[metric.spec.id]
+
+
+@pytest.mark.parametrize("field", ["reference", "response"])
+@pytest.mark.parametrize(
+    ("passages", "verdicts", "status", "value", "code"),
+    [
+        (["first", "second", "first"], [1, 0, 1], "success", 5 / 6, None),
+        (["second", "first", "first"], [0, 1, 1], "success", 7 / 12, None),
+        (["first", "second"], [0, 0], "undefined", None, "no_relevant_contexts"),
+        ([], [], "error", None, None),
+        ([""], [1], "success", 1.0, None),
+    ],
+)
+@pytest.mark.asyncio
+async def test_archived_context_precision(
+    field, passages, verdicts, status, value, code, judge, client
+):
+    suffix = "with_reference" if field == "reference" else "without_reference"
+    metric = create_metric("metric.rag.context_precision_" + suffix, llm=judge)
+    for verdict in verdicts:
+        client.chat_reply(json.dumps({"reason": "fixture", "verdict": verdict}))
+    row = {
+        "user_input": "question",
+        "reference": "gold",
+        "response": "observed",
+        "retrieved_contexts": passages,
+    }
+    result = await evaluate(metric, row)
+    assert result.status == status
+    if status == "success":
+        assert result.value == pytest.approx(value)
+    elif code:
+        assert result.value is None and result.error.code == code
+    else:
+        assert (result.error.category, result.error.field) == (
+            "validation_error",
+            "retrieved_contexts",
+        )
+    assert_calls(client, [f"ap_{field}_{passage or 'blank'}" for passage in passages])
+    if verdicts:
+        assert result.usage.generation.requests == len(verdicts)
+        assert result.usage.generation.requests_without_usage == len(verdicts)
 
 
 def assert_prompt(text, name):

@@ -20,6 +20,8 @@ from ragas.metrics._context_precision import IDBasedContextPrecision
 from ragas.metrics._context_recall import IDBasedContextRecall
 from ragas.embeddings.base import BaseRagasEmbedding
 from ragas.llms.base import InstructorBaseRagasLLM
+from ragas.metrics.collections.context_precision.metric import ContextPrecisionWithReference, ContextPrecisionWithoutReference
+from ragas.metrics.collections.context_precision.util import ContextPrecisionPrompt
 from ragas.metrics.collections.answer_relevancy.metric import AnswerRelevancy
 from ragas.metrics.collections.answer_relevancy.util import AnswerRelevancePrompt
 from ragas.metrics.collections.faithfulness.metric import Faithfulness
@@ -32,6 +34,8 @@ ANSWER = "巴黎。"
 
 # Expected TallyJudge outcomes for cases where the upstream scorer raised or returned NaN.
 INTENTIONAL_DIFFERENCES = {
+    "no_relevant_contexts": {"status": "undefined", "reason": "no_relevant_contexts"},
+    "empty_passages": {"status": "error", "reason": "validation_error"},
     "no_statements": {"status": "undefined", "reason": "no_statements"},
     "empty_verdicts": {"status": "undefined", "reason": "no_verdicts"},
     "zero_vector": {"status": "undefined", "reason": "zero_norm_embedding"},
@@ -73,6 +77,12 @@ class Embeddings(BaseRagasEmbedding):
 
 
 ID_METRICS = {"id_context_precision": IDBasedContextPrecision, "id_context_recall": IDBasedContextRecall}
+
+
+CONTEXT_METRICS = {
+    "context_precision_with_reference": ContextPrecisionWithReference,
+    "context_precision_without_reference": ContextPrecisionWithoutReference,
+}
 
 
 def cases():
@@ -142,11 +152,27 @@ def cases():
         for metric_id in ID_METRICS:
             yield metric_id, name, dict(retrieved_context_ids=retrieved, reference_context_ids=reference), [], {}
 
+    for metric_id, field, answer in (
+        ("context_precision_with_reference", "reference", "gold"),
+        ("context_precision_without_reference", "response", "observed"),
+    ):
+        for name, passages, flags in (
+            ("ranked", ["first", "second", "first"], [1, 0, 1]),
+            ("reordered", ["second", "first", "first"], [0, 1, 1]),
+            ("no_relevant_contexts", ["first", "second"], [0, 0]),
+            ("empty_passages", [], []),
+            ("empty_passage_text", [""], [1]),
+        ):
+            inputs = {"user_input": "question", field: answer, "retrieved_contexts": passages}
+            yield metric_id, name, inputs, [{"reason": "fixture", "verdict": v} for v in flags], {}
+
 
 async def legacy_score(metric_id, inputs, replies, vectors, judge, calls):
     if metric_id in ID_METRICS:
         return await ID_METRICS[metric_id]().single_turn_ascore(SingleTurnSample(**inputs))
-    if metric_id == "faithfulness":
+    if metric_id in CONTEXT_METRICS:
+        metric = CONTEXT_METRICS[metric_id](llm=judge)
+    elif metric_id == "faithfulness":
         metric = Faithfulness(llm=judge)
     else:
         metric = AnswerRelevancy(llm=judge, embeddings=Embeddings(vectors, calls), strictness=len(replies))
@@ -158,6 +184,8 @@ async def generate(source_root):
     for cls in (
         SingleTurnSample,
         *ID_METRICS.values(),
+        *CONTEXT_METRICS.values(),
+        ContextPrecisionPrompt,
         Faithfulness,
         AnswerRelevancy,
         StatementGeneratorPrompt,

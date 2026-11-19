@@ -31,6 +31,20 @@ BUILTINS = (
         dependencies={"llm": "language_model", "embeddings": "embedding_model"},
     ),
     PluginSpec(
+        "metric.rag.context_precision_with_reference",
+        "metric",
+        1,
+        "tallyjudge.plugins.metrics.rag.context_precision:ContextPrecisionWithReferenceMetric",
+        dependencies={"llm": "language_model"},
+    ),
+    PluginSpec(
+        "metric.rag.context_precision_without_reference",
+        "metric",
+        1,
+        "tallyjudge.plugins.metrics.rag.context_precision:ContextPrecisionWithoutReferenceMetric",
+        dependencies={"llm": "language_model"},
+    ),
+    PluginSpec(
         "metric.text.string_similarity",
         "metric",
         1,
