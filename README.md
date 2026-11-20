@@ -87,6 +87,52 @@ asyncio.run(main())
 
 `temperature` 需要显式指定。不传时插件不发送该参数，由服务端默认值决定（常见为 1.0），裁判的判断会更不稳定。客户端在哪个事件循环里创建，就只能在那个循环里使用：在一个 `asyncio.run(main())` 内创建客户端、连续 `await Evaluator(...).arun(dataset)`，不要用同一个模型反复调用同步的 `run()`。
 
+## 从文档切片生成评测集
+
+已有知识库切片但缺少参考答案时，可以让生成模型依据每个切片出一道题。每条成功样本包含问题、参考答案、证据原文，以及对应的切片和文档 ID。下面的函数接收前例构造的模型。
+
+```python
+import json
+from pathlib import Path
+
+from tallyjudge import Dataset, create_synthesizer
+from tallyjudge.interfaces.models import LanguageModel
+
+
+async def make_testset(judge: LanguageModel, path: Path) -> Dataset:
+    chunks = [
+        {"chunk_id": "hours", "document_id": "library", "text": "图书馆周一闭馆。"},
+        {"chunk_id": "loans", "document_id": "library", "text": "图书借期为14天。"},
+    ]
+    generator = create_synthesizer("synthesis.testset.single_hop", llm=judge, seed=7)
+    result = await generator.arun(chunks, testset_size=2)
+    with path.open("w", encoding="utf-8") as stream:
+        for row in result.to_records():
+            print(json.dumps(row, ensure_ascii=False), file=stream)
+    return result.to_dataset()
+```
+
+每个切片最多尝试一次。用 `result.generated_count` 和 `result.attempted_count` 查看成功数与尝试数，失败原因和来源保存在 `result.candidates`。将生成的数据交给 `@experiment` 时，由被测应用提供实际回答和检索结果。正式使用前可以按 `reference_context_ids` 回到原文复核问题与参考答案。
+
+已有原文可以用 `split_documents` 切分。需要跨段出题时，可以用每段的 `entities` 建关系图，也可以用 `build_similarity_graph` 按嵌入余弦阈值连边。已有关系图可直接交给生成器。下面的两段原文通过 Kit 相连。函数接收调用者已经构造好的模型。
+
+```python
+from tallyjudge import create_synthesizer
+from tallyjudge.interfaces.models import LanguageModel
+from tallyjudge.plugins.synthesis.documents import SourceDocument, split_documents
+from tallyjudge.plugins.synthesis.graph import build_graph
+
+
+async def make_multihop_set(judge: LanguageModel):
+    docs = [
+        SourceDocument("design", "Ada 设计了 Kit。", ("Kit",)),
+        SourceDocument("location", "Kit 收藏在罗马。", ("Kit",)),
+    ]
+    graph = build_graph(split_documents(docs))  # python -m pip install ".[synthesis-graph]"
+    generator = create_synthesizer("synthesis.testset.multi_hop", llm=judge)
+    return await generator.arun(graph, testset_size=1)
+```
+
 ## 可用指标
 
 | 指标 | 所需字段 | 评分方式 |
@@ -109,6 +155,7 @@ asyncio.run(main())
 | `metric.custom.categorical` | `response` | 按 `criteria` 从 `labels` 中选择标签，汇总每个标签的次数。 |
 | `metric.custom.rubric_without_reference` | `response` | 按固定五档量表评回答，保留分数和反馈。 |
 | `metric.custom.rubric_with_reference` | `response`、`reference` | 结合参考答案，按固定五档量表评回答。 |
+| `metric.workflow.tool_sequence` | `trace`、`expected_tools` | 按开始顺序比较实际成功的工具调用，保留失败及重试记录。 |
 | `metric.custom.instance_rubric` | `response`、`rubrics` | 每条样本提供自己的五档说明，适用于各题评分标准不同的数据集。 |
 
 ### 本地评检索结果
@@ -203,6 +250,32 @@ for case in compare_runs(restored, result).rows:
 ```
 
 `compare_runs` 只在输入和评分口径一致、两边都评分成功时给出差值，其余情况在 `changes` 中说明原因。给 `Evaluator` 传入 `backend=store` 可在运行结束时自动保存；`cache=create_cache_backend("cache.local.sqlite", path=..., namespace=...)` 可复用已经算过的分数。
+
+## 比较与优化业务提示词
+
+给每次实验标记提示词版本和模型，然后对相同 `case_id` 的回答做配对比较。返回的行包含双方业务输出与原始评分，汇总中可见各自的覆盖率、成对样本数、胜平负与分差。
+
+```python
+from tallyjudge import Dataset, compare_experiments, create_metric, experiment
+
+data = Dataset.from_records([
+    {"case_id": "loans", "user_input": "借期多久？", "reference": "14天"},
+])
+metric = create_metric("metric.text.exact_match")
+v1 = experiment(lambda row: {"response": "7天"}, metadata={"prompt_version": "v1"})
+v2 = experiment(lambda row: {"response": "14天"}, metadata={"prompt_version": "v2"})
+paired = compare_experiments(v1.run(data, metrics=[metric]), v2.run(data, metrics=[metric]))
+print(paired.metrics[metric.spec.id].wins)  # 1
+```
+
+有两份带标注且 `case_id` 不重叠的数据时，可用 `create_optimizer("optimization.prompt.genetic", llm=judge, max_candidates=6, max_requests=100)` 创建优化器。调用 `optimizer.run(instruction, train=train, holdout=holdout, metric=metric)`，从 `result.instruction` 取入选指令，从 `result.holdout` 读取留出集报告。使用 MIPROv2 时在仓库根目录运行 `python -m pip install ".[dspy]"` 并选择 `optimization.prompt.dspy_mipro`。
+
+| 可选接入 | 用法 |
+| --- | --- |
+| LangChain、LlamaIndex 文档 | `plugins.adapters.documents` 中的 `langchain_documents`、`llamaindex_documents` 保留来源，可接 `split_documents`。 |
+| 工作流 | `plugins.adapters.workflow.langchain_trace` 接收 v2 事件。传 `include_content=True` 时保留工具参数、结果原文。 |
+| 精确切片长度 | 把 `tiktoken_counter(encoding)` 或 `huggingface_counter(tokenizer_file)` 作为 `split_documents(..., measure=...)` 的长度函数。相应安装组为 `tiktoken`、`hf-tokenizers`。 |
+| Git 与外部追踪 | `plugins.versioning.git.git_revision(repo, revision)` 返回可写入实验元数据的 commit。安装 `.[mlflow]` 后，可把 `create_event_sink("event.mlflow.tracking", tracking_uri=uri, experiment_id=exp_id)` 传给 `Evaluator`。 |
 
 ## 命令行
 

@@ -22,9 +22,11 @@ def test_lazy_list_describe_and_construct_in_fresh_process():
     code = """
 import sys
 from tallyjudge.registry import registry
+assert {spec.id for spec in registry.list(kind='synthesis')} == {'synthesis.testset.single_hop', 'synthesis.testset.multi_hop'}
 assert {spec.id for spec in registry.list(kind='storage')} == {'storage.local.memory', 'storage.local.jsonl'}
 assert {spec.id for spec in registry.list(kind='cache')} == {'cache.local.sqlite'}
-assert {spec.id for spec in registry.list(kind='event')} == {'event.local.jsonl'}
+assert {spec.id for spec in registry.list(kind='event')} == {'event.local.jsonl', 'event.mlflow.tracking'}
+assert {spec.id for spec in registry.list(kind='optimization')} == {'optimization.prompt.genetic', 'optimization.prompt.dspy_mipro'}
 assert not any(name.startswith('tallyjudge.plugins.') for name in sys.modules)
 settings = {'metric.custom.numeric': {'criteria': 'quality'}, 'metric.custom.categorical': {'criteria': 'quality', 'labels': ['yes', 'no']}}
 for plugin in registry.list(kind='metric'):
@@ -51,7 +53,7 @@ def test_registry_failures_and_explicit_replace():
     )
     assert len(registry.list(kind="model")) == 1
     with pytest.raises(PluginError, match="configuration"):
-        registry.create(BUILTINS[0].id, model="unexpected")
+        registry.create("metric.text.exact_match", model="unexpected")
     registry.register(PluginSpec("wrong", "metric", 1, ExactMatchMetric))
     with pytest.raises(PluginError, match="must match"):
         registry.create("wrong")

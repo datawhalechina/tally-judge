@@ -104,9 +104,10 @@ class RunResult:
     inputs: list[dict[str, Any]] | None = None
     run_status: RunStatus = "running"
     stop_reason: str | None = None
-    schema_version: int = 2
+    schema_version: int = 3
     cleanup_warnings: list[CleanupWarning] = field(default_factory=list)
     events_complete: bool | None = None
+    metadata: dict[str, Any] | None = None
 
     @property
     def summary(self) -> dict[str, dict[str, Any]]:
@@ -139,17 +140,19 @@ class RunResult:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "RunResult":
-        """Read a v1 or v2 export without loading the scoring plugins.
+        """Read a v1, v2 or v3 export without loading the scoring plugins.
 
         Derived summaries are recomputed. The manifest binds each result and
         retained input to the same ID and position, even with a custom ID field.
         """
         version = data.get("schema_version")
-        if type(version) is not int or version not in (1, 2):
+        if type(version) is not int or version not in (1, 2, 3):
             raise ValueError(f"Unsupported run schema version: {version!r}")
         result = _RUN_SCHEMA.validate_json(
             json.dumps(data, allow_nan=False), strict=True
         )
+        if version < 3:
+            result.metadata = None
         output_types = {}
         for key, metadata in result.metrics.items():
             kind = "numeric" if version == 1 else metadata.get("output_kind")
@@ -199,6 +202,8 @@ class RunResult:
         data = asdict(self if include_inputs else replace(self, inputs=None))
         if data["inputs"] is None:
             del data["inputs"]
+        if self.schema_version < 3:
+            del data["metadata"]
         if self.schema_version == 1:
             del data["events_complete"]
             for row in data["rows"]:
@@ -212,7 +217,7 @@ class RunResult:
         """Export the stored fields plus summaries recomputed from the individual steps."""
         data = self._payload(include_inputs=include_inputs)
         data["summary"] = self.summary
-        if self.schema_version == 2:
+        if self.schema_version >= 2:
             usage = self.usage
             data["usage"] = asdict(usage) if usage is not None else None
         return data

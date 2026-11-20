@@ -3,6 +3,7 @@
 import asyncio
 import logging
 from collections.abc import Sequence
+from typing import Any
 
 from tallyjudge.core.config import ExecutionConfig
 from tallyjudge.core.dataset import Dataset
@@ -65,6 +66,7 @@ class Evaluator:
         dataset: Dataset,
         collector: RunCollector | None,
         row_function: RowFunction | None,
+        experiment_metadata: dict[str, Any] | None = None,
     ) -> RunResult:
         collector = collector if collector is not None else RunCollector()
         previous = collector._result
@@ -75,6 +77,7 @@ class Evaluator:
                 self.config,
                 collector,
                 row_function=row_function,
+                experiment_metadata=experiment_metadata,
                 event_sink=self.event_sink,
                 cache=self.cache,
             )

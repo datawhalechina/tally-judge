@@ -17,12 +17,15 @@ def test_factory_examples_type_check(tmp_path):
         block for block in blocks if "faithfulness = create_metric(" in block
     )
     grading = next(block for block in blocks if "grade = create_metric(" in block)
+    synthesis = next(block for block in blocks if "async def make_testset(" in block)
     example = tmp_path / "examples.py"
     example.write_text(
         faithfulness
         + "\n\nfrom tallyjudge.interfaces.models import LanguageModel\n"
         + "async def grade_answer(judge: LanguageModel):\n"
-        + indent(grading, "    "),
+        + indent(grading, "    ")
+        + "\n\n"
+        + synthesis,
         encoding="utf-8",
     )
     # The OpenAI SDK is optional. The metric factory and protocol always come from this checkout.

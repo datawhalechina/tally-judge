@@ -11,7 +11,7 @@ from tallyjudge.core.results import MetricResult
 from tallyjudge.core.usage import mark_usage_source
 from tallyjudge.interfaces.metrics import MetricBase, MetricSpec
 from tallyjudge.interfaces.models import EmbeddingModel, LanguageModel
-from tallyjudge.plugins.metrics._cosine import unit_vector
+from tallyjudge.plugins._vectors import unit_vector
 
 
 class AnswerRelevanceInput(BaseModel):

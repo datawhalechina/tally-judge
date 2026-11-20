@@ -23,6 +23,13 @@ dynamic = ["version", "readme"]
 [project.optional-dependencies]
 openai = ["openai>=2,<3"]
 text-distance = ["rapidfuzz>=3,<4"]
+synthesis-graph = ["networkx>=3,<4", "scikit-network>=0.33,<0.34"]
+langchain = ["langchain-core>=0.3,<2"]
+llama-index = ["llama-index-core>=0.12,<1"]
+dspy = ["dspy[optuna]>=3.5,<4"]
+mlflow = ["mlflow-skinny>=3,<4"]
+tiktoken = ["tiktoken>=0.8,<1"]
+hf-tokenizers = ["tokenizers>=0.20,<1"]
 
 [project.scripts]
 tallyjudge = "tallyjudge.cli:main"

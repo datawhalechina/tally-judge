@@ -112,6 +112,7 @@ class TaskRunner:
         collector: RunCollector,
         *,
         row_function: RowFunction | None = None,
+        experiment_metadata: dict[str, Any] | None = None,
         event_sink: EventSink | None = None,
         cache: ScoreCache | None = None,
     ) -> RunResult:
@@ -132,6 +133,7 @@ class TaskRunner:
                 for item in manifest
             ],
             dataset.records,
+            metadata=experiment_metadata,
         )
         collector._start(result)
         loop = asyncio.get_running_loop()

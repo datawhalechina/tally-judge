@@ -6,7 +6,9 @@ from tallyjudge.interfaces.cache import ScoreCache
 from tallyjudge.interfaces.events import EventSink
 from tallyjudge.interfaces.metrics import Metric
 from tallyjudge.interfaces.models import EmbeddingModel, LanguageModel
+from tallyjudge.interfaces.optimization import PromptOptimizer
 from tallyjudge.interfaces.storage import StorageBackend
+from tallyjudge.interfaces.synthesis import Synthesizer
 from tallyjudge.registry import registry
 
 
@@ -23,6 +25,16 @@ def create_language_model(plugin_id: str, **config: Any) -> LanguageModel:
 def create_embedding_model(plugin_id: str, **config: Any) -> EmbeddingModel:
     """Build an async embedding plugin using the caller's client."""
     return registry.create_for_kind("embedding", plugin_id, **config)
+
+
+def create_optimizer(plugin_id: str, **config: Any) -> PromptOptimizer:
+    """Build an optimizer for labeled application prompt experiments."""
+    return registry.create_for_kind("optimization", plugin_id, **config)
+
+
+def create_synthesizer(plugin_id: str, **config: Any) -> Synthesizer:
+    """Build a dataset generator using its registered ID and supplied model."""
+    return registry.create_for_kind("synthesis", plugin_id, **config)
 
 
 def create_storage_backend(plugin_id: str, **config: Any) -> StorageBackend:

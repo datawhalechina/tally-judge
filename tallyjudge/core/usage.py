@@ -117,6 +117,10 @@ class UsageScope:
 
     def seal(self) -> ScoreUsage | None:
         self.sealed = True
+        return self.snapshot()
+
+    def snapshot(self) -> ScoreUsage | None:
+        """Summarize requests observed so far without closing the scope."""
         if not any(self.records.values()) and not any(self.untracked.values()):
             return None
         return ScoreUsage(
@@ -131,6 +135,49 @@ class UsageScope:
 
 
 _scope: ContextVar[UsageScope | None] = ContextVar("tallyjudge_usage", default=None)
+
+
+class RequestLimitReached(RuntimeError):
+    """A bounded optimization cannot dispatch another model request."""
+
+
+class RequestBudget:
+    """A transport-level cap shared by proposals, evaluator jobs and provider retries."""
+
+    def __init__(self, maximum: int):
+        self._parent = _budget.get()
+        self.limit = maximum
+        self.requests = 0
+        self.exhausted = False
+        self.closed = False
+
+    @contextmanager
+    def activate(self) -> Iterator[None]:
+        """Attach this budget to all requests in the current async call tree."""
+        token = _budget.set(self)
+        try:
+            yield
+        finally:
+            _budget.reset(token)
+
+    def claim(self) -> None:
+        """Reserve one attempt on the owning evaluation loop immediately before transport."""
+        if self.closed or self.requests >= self.limit:
+            self.exhausted = True
+            raise RequestLimitReached("Optimization request budget exhausted")
+        # Claim the parent before counting locally so refusal cannot burn a child slot.
+        if self._parent is not None:
+            try:
+                self._parent.claim()
+            except RequestLimitReached:
+                self.exhausted = True
+                raise
+        self.requests += 1
+
+
+_budget: ContextVar[RequestBudget | None] = ContextVar(
+    "tallyjudge_request_budget", default=None
+)
 
 
 class RequestCall(list[RequestRecord]):
@@ -162,6 +209,8 @@ async def run_scoped_score[T](work: Coroutine[Any, Any, T]) -> T:
 
 
 def mark_usage_source(kind: RequestKind, plugin_id: str, tracking: Tracking) -> None:
+    if tracking == "untracked" and _budget.get() is not None:
+        raise ValueError("A bounded optimization requires per-request usage tracking")
     scope = _scope.get()
     if scope is not None:
         if scope.sealed:
@@ -178,6 +227,9 @@ def record_request(
     scope = _scope.get()
     if scope is not None and scope.sealed:
         raise UsageScopeClosed("The score has already reached its terminal state")
+    budget = _budget.get()
+    if budget is not None:
+        budget.claim()
     record = RequestRecord()
     call.append(record)
     if scope is not None:

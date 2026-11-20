@@ -189,3 +189,44 @@ async def test_sdk_cancel_then_reuse_on_same_loop():
         next_run = await evaluator.arun(dataset)
         assert next_run.rows[0].metrics[FAITH].error.code == "no_statements"
         assert count == 2 and not client.is_closed()
+
+
+@pytest.mark.asyncio
+async def test_multi_hop_request_accepts_plain_evidence_in_json_mode():
+    from tallyjudge import create_synthesizer
+    from tallyjudge.plugins.synthesis.graph import EvidenceGraph
+
+    calls = []
+
+    def handler(request):
+        body = json.loads(request.content)
+        calls.append(body)
+        assert body["response_format"] == {"type": "json_object"}
+        if not any("json" in m["content"].lower() for m in body["messages"]):
+            return httpx.Response(
+                400, json={"error": {"message": "JSON instruction required"}}
+            )
+        return completion(
+            json.dumps(
+                {
+                    "user_input": "Where does Ada's creation live?",
+                    "reference": "Rome",
+                    "evidence_quotes": ["Ada built Kit", "Kit lives in Rome"],
+                }
+            )
+        )
+
+    graph = EvidenceGraph(
+        (
+            {"chunk_id": "a", "document_id": "bio", "text": "Ada built Kit."},
+            {"chunk_id": "b", "document_id": "place", "text": "Kit lives in Rome."},
+        ),
+        (("a", "b"),),
+    )
+    async with sdk(handler) as client:
+        llm = create_language_model(CHAT, client=client, model="judge")
+        result = await create_synthesizer("synthesis.testset.multi_hop", llm=llm).arun(
+            graph, testset_size=1
+        )
+    assert result.generated_count == result.usage.generation.requests == len(calls) == 1
+    assert result.to_records()[0]["reference_context_ids"] == ["a", "b"]

@@ -19,6 +19,7 @@ from tallyjudge import (
     create_embedding_model,
     create_language_model,
     create_metric,
+    create_synthesizer,
 )
 from tallyjudge.core.errors import PluginError
 from tallyjudge.registry import registry
@@ -171,6 +172,41 @@ async def check_single_turn_rag():
     assert list(client.outputs) == []
 
 
+async def check_synthesis():
+    client = Client()
+    client.outputs = iter(
+        [{"user_input": "When does the library close?", "reference": "Monday"}]
+    )
+    llm = create_language_model(
+        "model.openai_compatible.chat_completions",
+        client=client,
+        model="test",
+        temperature=0.0,
+    )
+    generator = create_synthesizer("synthesis.testset.single_hop", llm=llm, seed=7)
+    [row] = (
+        (
+            await generator.arun(
+                [
+                    {
+                        "chunk_id": "hours",
+                        "document_id": "guide",
+                        "text": "Closed on Monday.",
+                    }
+                ],
+                testset_size=2,
+            )
+        )
+        .to_dataset()
+        .records
+    )
+    assert (
+        row["reference"],
+        row["reference_context_ids"],
+        row["reference_document_ids"],
+    ) == ("Monday", ["hours"], ["guide"])
+
+
 def check_distances(installed):
     ids = (
         "metric.text.string_similarity",
@@ -210,6 +246,8 @@ def check_installation():
         "embedding",
         "storage",
         "event",
+        "synthesis",
+        "optimization",
         "cache",
     }
     assert not any(name.startswith("tallyjudge.plugins.") for name in sys.modules)
@@ -226,10 +264,11 @@ def check_installation():
     result = Evaluator(metrics).run(dataset)
     assert len(result.rows) == 2
     assert all(item["mean"] == 0.5 for item in result.summary.values())
-    assert json.loads(result.to_json())["schema_version"] == 2
+    assert json.loads(result.to_json())["schema_version"] == 3
     assert result.run_status == "completed" and result.stop_reason is None
     asyncio.run(check_rag())
     asyncio.run(check_single_turn_rag())
+    asyncio.run(check_synthesis())
     assert not {
         "ragas",
         "numpy",

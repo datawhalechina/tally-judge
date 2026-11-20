@@ -43,7 +43,7 @@ def test_empty_and_private_json_roundtrip():
         data = json.loads(report.to_json(include_inputs=include_inputs))
         assert data == report.to_dict(include_inputs=include_inputs)
         assert ("inputs" in data) == include_inputs
-        assert data["schema_version"] == 2
+        assert data["schema_version"] == 3
         assert data["manifest"] == dataset.manifest
         assert data["metrics"]["answer_match"] == {
             "id": metric.spec.id,

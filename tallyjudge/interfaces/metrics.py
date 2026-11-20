@@ -253,6 +253,8 @@ class MetricBinding:
         }
         if spec.output_type is float:
             metadata["value_range"] = list(spec.value_range)
+            if spec.direction == "lower_is_better":
+                metadata["direction"] = spec.direction
             if spec.levels:
                 metadata["levels"] = list(spec.levels)
         elif spec.output_type is str:

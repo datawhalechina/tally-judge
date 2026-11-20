@@ -1,4 +1,4 @@
-"""Explicit registration and lazy, validated metric construction."""
+"""Explicit registration and lazy, validated plugin construction."""
 
 import importlib
 from collections.abc import Iterable
@@ -11,10 +11,14 @@ from tallyjudge.core.errors import PluginError
 from tallyjudge.interfaces.cache import ScoreCache
 from tallyjudge.interfaces.events import EventSink
 from tallyjudge.interfaces.metrics import MetricSpec
+from tallyjudge.interfaces.optimization import PromptOptimizer
 from tallyjudge.interfaces.storage import StorageBackend
+from tallyjudge.interfaces.synthesis import Synthesizer
 from tallyjudge.registry.specs import PluginSpec
 
-_BACKEND_CONTRACTS = {
+_PLUGIN_CONTRACTS = {
+    "synthesis": Synthesizer,
+    "optimization": PromptOptimizer,
     "storage": StorageBackend,
     "cache": ScoreCache,
     "event": EventSink,
@@ -114,7 +118,7 @@ class PluginRegistry:
         if type(spec.api_version) is not int or spec.api_version != 1:
             raise PluginError(f"Unsupported plugin api_version; expected 1: {spec.id}")
         if (
-            spec.kind not in ("metric", "model", "embedding", *_BACKEND_CONTRACTS)
+            spec.kind not in ("metric", "model", "embedding", *_PLUGIN_CONTRACTS)
             or kind is not None
             and spec.kind != kind
         ):
@@ -198,10 +202,14 @@ class PluginRegistry:
                 raise PluginError(
                     f"Factory result does not satisfy the Metric contract: {spec.id}"
                 )
-        elif spec.kind in _BACKEND_CONTRACTS:
-            if not isinstance(plugin, _BACKEND_CONTRACTS[spec.kind]):
+        elif spec.kind in _PLUGIN_CONTRACTS:
+            if not isinstance(plugin, _PLUGIN_CONTRACTS[spec.kind]):
                 raise PluginError(
                     f"Factory result does not match the {spec.kind} contract: {spec.id}"
+                )
+            if spec.kind == "synthesis" and plugin.plugin_id != spec.id:
+                raise PluginError(
+                    f"PluginSpec.id must match the synthesizer ID: {spec.id}"
                 )
         elif (
             not _matches_model(
