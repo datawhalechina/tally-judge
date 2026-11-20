@@ -1,12 +1,13 @@
-"""End-to-end contracts for the nine single-turn RAG metrics."""
+"""End-to-end contracts for the fifteen single-turn RAG metrics."""
 
 import json
-from types import SimpleNamespace
 
 import pytest
 
 from tallyjudge import Dataset, Evaluator, create_metric, create_storage_backend
 from tallyjudge.core.errors import PluginError
+from tallyjudge.core.usage import Usage, UsageSummary, record_request
+from tallyjudge.interfaces.models import EmbeddingResult, GenerationResult
 from tallyjudge.plugins.metrics.rag.answer_correctness import AnswerCorrectnessMetric
 from tallyjudge.registry import PluginSpec, registry
 
@@ -15,7 +16,7 @@ AC = "metric.rag.answer_correctness"
 
 class Judge:
     plugin_id = "model.test.rag"
-    usage_tracking = "untracked"
+    usage_tracking = "per_request"
 
     def __init__(self):
         self.calls = []
@@ -24,21 +25,44 @@ class Judge:
         return {}
 
     async def agenerate(self, prompt, response_model):
-        self.calls.append(response_model.__name__)
-        message = prompt.messages[0].content
-        data = json.loads(message.rsplit("\ninput: ", 1)[1].removesuffix("\nOutput: "))
-        verdict = {"statement": "claim", "reason": "test", "verdict": 1}
-        match response_model.__name__:
+        records = []
+        with record_request("generation", records) as request:
+            self.calls.append(response_model.__name__)
+            request.usage = Usage(3, 1)
+            message = prompt.messages[0].content
+            data = json.loads(
+                message.rsplit("\ninput: ", 1)[1].removesuffix("\nOutput: ")
+            )
+            output = self._reply(response_model.__name__, data)
+        return GenerationResult(
+            response_model.model_validate(output),
+            UsageSummary.from_records(records),
+            self.plugin_id,
+        )
+
+    @staticmethod
+    def _reply(schema, data):
+        match schema:
             case "StatementGeneratorOutput":
-                output = {"statements": ["claim"]}
+                claims = (
+                    ["gold fact"]
+                    if data["answer"] == "gold"
+                    else ["gold fact", "from hit", "both", "from miss"]
+                )
+                return {"statements": claims}
             case "NLIStatementOutput":
-                output = {"statements": [verdict]}
+                return {
+                    "statements": [
+                        {"statement": s, "reason": "test", "verdict": 1}
+                        for s in data["statements"]
+                    ]
+                }
             case "AnswerRelevanceOutput":
-                output = {"question": "q", "noncommittal": 0}
+                return {"question": "q", "noncommittal": 0}
             case "ContextPrecisionOutput":
-                output = {"reason": "test", "verdict": int(data["context"] == "hit")}
+                return {"reason": "test", "verdict": int(data["context"] == "hit")}
             case "ContextRecallOutput":
-                output = {
+                return {
                     "classifications": [
                         {
                             "statement": "claim",
@@ -49,25 +73,58 @@ class Judge:
                     ]
                 }
             case "ClassificationWithReason":
-                output = {
+                return {
                     "TP": [{"statement": "claim", "reason": "test"}],
                     "FP": [],
                     "FN": [],
                 }
+            case "EntitiesList":
+                if data["text"] == "gold":
+                    return {"entities": ["Paris", "Seine"]}
+                return {
+                    "entities": ["Paris"] if "hit" in data["text"].split("\n") else []
+                }
+            case "ClaimDecompositionOutput":
+                return {"claims": ["claim"]}
+            case "StatementFaithfulnessOutput":
+                support = {
+                    "hit": {"gold fact", "from hit", "both"},
+                    "miss": {"from miss", "both"},
+                    "gold": {"gold fact"},
+                }
+                return {
+                    "statements": [
+                        {
+                            "statement": s,
+                            "reason": "test",
+                            "verdict": int(s in support[data["context"]]),
+                        }
+                        for s in data["statements"]
+                    ]
+                }
+            case "AnswerAccuracyOutput":
+                return {"rating": 4 if data["user_answer"] == "answer" else 2}
+            case "ContextRelevanceOutput" | "ResponseGroundednessOutput":
+                return {"rating": 2}
             case other:
                 raise AssertionError(other)
-        return SimpleNamespace(data=response_model.model_validate(output))
 
 
 class Vectors:
     plugin_id = "embedding.test.rag"
-    usage_tracking = "untracked"
+    usage_tracking = "per_request"
 
     def config_snapshot(self):
         return {}
 
     async def aembed_texts(self, texts):
-        return SimpleNamespace(vectors=[[1.0, 0.0] for _ in texts])
+        records = []
+        with record_request("embedding", records) as request:
+            request.usage = Usage(2, 0)
+            vectors = [[1.0, 0.0] for _ in texts]
+        return EmbeddingResult(
+            vectors, UsageSummary.from_records(records), self.plugin_id
+        )
 
 
 def test_optional_embeddings_follow_correctness_weights_at_construction():
@@ -126,7 +183,9 @@ def test_invalid_correctness_settings_rejected_in_both_public_paths(settings):
 
 
 @pytest.mark.asyncio
-async def test_nine_metrics_on_one_dataset_export_failures_and_coverage(tmp_path):
+async def test_fifteen_metrics_on_one_dataset_export_scores_failures_and_usage(
+    tmp_path,
+):
     judge, embeddings = Judge(), Vectors()
     base = {
         "user_input": "q",
@@ -151,6 +210,7 @@ async def test_nine_metrics_on_one_dataset_export_failures_and_coverage(tmp_path
             base,
             case_id="invalid",
             response=3,
+            reference="",
             retrieved_contexts=[],
             retrieved_context_ids=[],
             reference_context_ids=[],
@@ -165,6 +225,14 @@ async def test_nine_metrics_on_one_dataset_export_failures_and_coverage(tmp_path
         "metric.rag.context_precision_without_reference",
     )
     recall = "metric.rag.context_recall"
+    diagnostics = {
+        "context_entity_recall": (1 / (2 + 1e-8), 2),
+        "factual_correctness": (1.0, 4),
+        "noise_sensitivity": (0.5, 9),
+        "answer_accuracy": (0.75, 2),
+        "context_relevance": (1.0, 2),
+        "response_groundedness": (1.0, 2),
+    }
     metrics = [
         create_metric("metric.rag.faithfulness", llm=judge),
         create_metric(
@@ -180,6 +248,7 @@ async def test_nine_metrics_on_one_dataset_export_failures_and_coverage(tmp_path
         create_metric(recall, llm=judge),
         create_metric("metric.text.semantic_similarity", embeddings=embeddings),
         create_metric(AC, llm=judge, embeddings=embeddings),
+        *(create_metric("metric.rag." + name, llm=judge) for name in diagnostics),
     ]
     store = create_storage_backend("storage.local.jsonl", root=tmp_path)
     run = await Evaluator(metrics, backend=store).arun(Dataset.from_records(rows))
@@ -187,7 +256,8 @@ async def test_nine_metrics_on_one_dataset_export_failures_and_coverage(tmp_path
     assert (
         saved.rows == run.rows
         and saved.summary == run.summary
-        and len(saved.metrics) == 9
+        and saved.metrics == run.metrics
+        and len(saved.metrics) == 15
     )
     first = saved.row_for("ranked").metrics
     assert all(score.status == "success" for score in first.values())
@@ -200,6 +270,22 @@ async def test_nine_metrics_on_one_dataset_export_failures_and_coverage(tmp_path
         (AC, 1.0),
     ):
         assert first[key].value == pytest.approx(value)
+    for name, (value, requests) in diagnostics.items():
+        key = "metric.rag." + name
+        assert first[key].value == pytest.approx(value, abs=1e-12, rel=0)
+        assert first[key].usage.generation.requests == requests
+        assert first[key].usage.generation.known_tokens == {
+            "input_tokens": 3 * requests,
+            "output_tokens": requests,
+        }
+        assert saved.summary[key]["coverage"] == pytest.approx(2 / 3)
+        assert (
+            saved.metrics[key]["revision"]
+            == saved.metrics[key]["config_snapshot"]["prompt_revision"]
+            == "1"
+        )
+    assert saved.usage.generation.requests == len(judge.calls)
+    assert saved.usage.embedding.requests > 0
     miss = saved.row_for("miss").metrics
     assert (
         miss[id_precision].value,
@@ -210,6 +296,9 @@ async def test_nine_metrics_on_one_dataset_export_failures_and_coverage(tmp_path
     assert (
         invalid[AC].error.field == "response"
         and invalid[id_recall].error.code == "no_reference_ids"
+        and invalid["metric.rag.context_entity_recall"].error.code
+        == "no_reference_entities"
+        and invalid["metric.rag.context_relevance"].error.field == "retrieved_contexts"
     )
     assert saved.summary[with_ref]["coverage"] == pytest.approx(1 / 3)
     assert saved.summary[recall]["mean"] == pytest.approx(1 / 3)
