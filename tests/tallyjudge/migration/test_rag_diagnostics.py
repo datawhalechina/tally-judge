@@ -375,7 +375,7 @@ DUAL_JUDGES = [
     ],
 )
 @pytest.mark.asyncio
-async def test_dual_judges_require_two_in_scale_ratings(
+async def test_dual_judges_replay_archived_ratings_and_attempts(
     client, metric, row, grades, order, case
 ):
     high, other = grades
@@ -387,18 +387,23 @@ async def test_dual_judges_require_two_in_scale_ratings(
         "only_second_valid": [9, 9, 9, 9, 9, high],
         "both_invalid": [9] * 10,
     }[case]
-    consumed = order if ratings[0] == high else order[:1]
+    attempts = {
+        "two_ratings": (1, 1),
+        "retry_then_valid": (2, 1),
+        "only_first_valid": (1, 5),
+        "only_second_valid": (5, 1),
+        "both_invalid": (5, 5),
+    }[case]
+    consumed = [order[0]] * attempts[0] + [order[1]] * attempts[1]
     score = await replay(
         client, metric, row, [{"rating": r} for r in ratings], consumed
     )
-    if case == "two_ratings":
-        assert (score.status, score.value) == ("success", (high + other) / (2 * high))
+    if case == "both_invalid":
+        assert (score.status, score.error.code) == ("undefined", "no_valid_ratings")
+    elif case in {"only_first_valid", "only_second_valid"}:
+        assert (score.status, score.value) == ("success", 1.0)
     else:
-        assert (score.status, score.error.category, score.error.code) == (
-            "error",
-            "model_output_error",
-            "invalid_rating",
-        )
+        assert (score.status, score.value) == ("success", (high + other) / (2 * high))
 
 
 @pytest.mark.asyncio
@@ -523,3 +528,31 @@ async def test_granularity_examples_are_bound_to_each_metric_instance(client):
         assert_archived_prompt(client.calls[-2][1]["messages"][0]["content"], name)
         snapshot = metric.config_snapshot()
         assert (snapshot["atomicity"], snapshot["coverage"]) == (atomicity, coverage)
+
+
+@pytest.mark.asyncio
+async def test_judge_attempt_budget_is_independent_of_json_repair(client):
+    model = create_language_model(
+        "model.openai_compatible.chat_completions",
+        client=client,
+        model="offline",
+        structured_retries=0,
+    )
+    data = Dataset.from_records([dict(FACTS, user_input="question")])
+    for budget, replies, expected in [
+        (0, [], None),
+        (1, [{}, {"rating": 2}], 0.5),
+        (2, [{}, {"rating": 4}, {"rating": 2}], 0.75),
+    ]:
+        metric = create_metric(
+            "metric.rag.answer_accuracy", llm=model, max_retries=budget
+        )
+        before = len(client.calls)
+        for reply in replies:
+            client.chat_reply(json.dumps(reply))
+        run = await Evaluator([metric]).arun(data)
+        score = run.rows[0].metrics[metric.spec.id]
+        assert score.value == expected
+        assert score.status == ("undefined" if expected is None else "success")
+        assert len(client.calls) - before == len(replies)
+        assert metric.config_snapshot()["max_retries"] == budget

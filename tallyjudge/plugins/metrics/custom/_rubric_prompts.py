@@ -1,6 +1,8 @@
-"""Five-level rubric instructions and examples from Ragas ec00339 (Apache-2.0)."""
+"""Rubric prompts and wire models from the Ragas authors, ec00339 (Apache-2.0)."""
 
-from pydantic import BaseModel, ConfigDict, Field
+import typing as t
+
+from pydantic import BaseModel, Field
 
 from tallyjudge.core.prompts import StructuredPrompt
 
@@ -21,70 +23,110 @@ DEFAULT_WITH_REFERENCE_RUBRICS = {
 }
 
 
-class RubricInput(BaseModel):
-    user_input: str | None = None
-    response: str
-    retrieved_contexts: list[str] | None = None
-    reference_contexts: list[str] | None = None
-    reference: str | None = None
+class RubricScoreInput(BaseModel):
+    """Input model for rubric-based scoring."""
+
+    user_input: t.Optional[str] = Field(
+        default=None, description="The input/question provided to the system"
+    )
+    response: t.Optional[str] = Field(
+        default=None, description="The response from the system"
+    )
+    retrieved_contexts: t.Optional[t.List[str]] = Field(
+        default=None, description="The contexts retrieved for generating the response"
+    )
+    reference_contexts: t.Optional[t.List[str]] = Field(
+        default=None, description="The reference contexts for evaluation"
+    )
+    reference: t.Optional[str] = Field(
+        default=None, description="The reference/ground truth answer"
+    )
 
 
-class InstanceRubricInput(RubricInput):
-    rubrics: dict[str, str]
+class RubricScoreOutput(BaseModel):
+    """Output model for rubric-based scoring."""
+
+    feedback: str = Field(..., description="Detailed feedback explaining the score")
+    score: int = Field(..., description="Score from 1-5 based on the rubric")
 
 
-class RubricVerdict(BaseModel):
-    model_config = ConfigDict(strict=True)
+class RubricScorePrompt(StructuredPrompt[RubricScoreInput, RubricScoreOutput]):
+    """Prompt for scoring responses using a rubric."""
 
-    feedback: str = Field(description="Detailed feedback explaining the score")
-    score: int = Field(ge=1, le=5, description="Score from 1-5 based on the rubric")
+    input_model = RubricScoreInput
+    output_model = RubricScoreOutput
 
-
-class FixedRubricPrompt(StructuredPrompt[RubricInput, RubricVerdict]):
-    input_model = RubricInput
-    output_model = RubricVerdict
     instruction = "Your task is to assign an appropriate score and provide feedback to the inputs based solely on the scoring criteria."
 
     examples = [
         (
-            RubricInput(
+            RubricScoreInput(
                 user_input="What is the capital of France?",
                 response="The capital of France is Paris.",
                 reference="Paris is the capital and largest city of France.",
             ),
-            RubricVerdict(
+            RubricScoreOutput(
                 feedback="The response correctly identifies Paris as the capital of France, which fully aligns with the reference. The answer is accurate, clear, and directly addresses the question.",
                 score=5,
             ),
         ),
         (
-            RubricInput(
+            RubricScoreInput(
                 user_input="Explain photosynthesis.",
                 response="Photosynthesis is when plants make food.",
                 reference="Photosynthesis is the process by which plants convert light energy into chemical energy, using carbon dioxide and water to produce glucose and oxygen.",
             ),
-            RubricVerdict(
+            RubricScoreOutput(
                 feedback="The response captures the basic concept that plants make food but lacks the scientific detail about light energy conversion, the role of carbon dioxide and water, and the production of glucose and oxygen. It aligns with the reference at a very high level but misses substantial detail.",
                 score=3,
             ),
         ),
     ]
 
-    def __init__(self, rubrics: dict[str, str], *, use_default_examples: bool):
-        if not use_default_examples:
-            self.examples = []
-        rules = "\n".join(f"{key}: {value}" for key, value in rubrics.items())
-        self.instruction = f"{self.instruction}\n\nScoring Rubrics:\n{rules}"
+
+class InstanceRubricScoreInput(BaseModel):
+    """Input model for instance-specific rubric scoring."""
+
+    user_input: t.Optional[str] = Field(
+        default=None, description="The input/question provided to the system"
+    )
+    response: t.Optional[str] = Field(
+        default=None, description="The response from the system"
+    )
+    retrieved_contexts: t.Optional[t.List[str]] = Field(
+        default=None, description="The contexts retrieved for generating the response"
+    )
+    reference_contexts: t.Optional[t.List[str]] = Field(
+        default=None, description="The reference contexts for evaluation"
+    )
+    reference: t.Optional[str] = Field(
+        default=None, description="The reference/ground truth answer"
+    )
+    rubrics: t.Dict[str, str] = Field(
+        ..., description="The scoring rubrics for this specific instance"
+    )
 
 
-class InstanceRubricPrompt(StructuredPrompt[InstanceRubricInput, RubricVerdict]):
-    input_model = InstanceRubricInput
-    output_model = RubricVerdict
+class InstanceRubricScoreOutput(BaseModel):
+    """Output model for instance-specific rubric scoring."""
+
+    feedback: str = Field(..., description="Detailed feedback explaining the score")
+    score: int = Field(..., description="Score based on the provided rubric")
+
+
+class InstanceRubricScorePrompt(
+    StructuredPrompt[InstanceRubricScoreInput, InstanceRubricScoreOutput]
+):
+    """Prompt for scoring responses using instance-specific rubrics."""
+
+    input_model = InstanceRubricScoreInput
+    output_model = InstanceRubricScoreOutput
+
     instruction = "Your task is to assign an appropriate score and provide feedback to the inputs based solely on the scoring criteria passed in the input."
 
     examples = [
         (
-            InstanceRubricInput(
+            InstanceRubricScoreInput(
                 user_input="Write a professional email to decline a meeting invitation.",
                 response="Hi, I can't make it to the meeting. Sorry about that.",
                 rubrics={
@@ -95,13 +137,13 @@ class InstanceRubricPrompt(StructuredPrompt[InstanceRubricInput, RubricVerdict])
                     "score5_description": "The email is highly professional, courteous, and complete.",
                 },
             ),
-            RubricVerdict(
+            InstanceRubricScoreOutput(
                 feedback="The response is too casual for a professional email. It lacks a proper greeting, professional tone, and courteous closing. While it conveys the message, it doesn't meet professional email standards.",
                 score=2,
             ),
         ),
         (
-            InstanceRubricInput(
+            InstanceRubricScoreInput(
                 user_input="Explain the concept of machine learning to a 10-year-old.",
                 response="Machine learning is like teaching a computer to learn from examples, just like how you learn to recognize animals by seeing many pictures of them. The computer looks at lots of examples and figures out patterns on its own!",
                 rubrics={
@@ -112,7 +154,7 @@ class InstanceRubricPrompt(StructuredPrompt[InstanceRubricInput, RubricVerdict])
                     "score5_description": "The explanation is perfectly tailored for a 10-year-old with great analogies.",
                 },
             ),
-            RubricVerdict(
+            InstanceRubricScoreOutput(
                 feedback="The response uses an excellent analogy comparing machine learning to how children learn to recognize animals. The language is age-appropriate and the concept is clearly explained without technical jargon.",
                 score=5,
             ),

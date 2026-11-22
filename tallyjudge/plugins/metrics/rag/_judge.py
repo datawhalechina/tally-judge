@@ -25,7 +25,7 @@ def required_text_inputs(*names: str, passages: bool = False) -> dict[str, Any]:
 
 
 def binary_verdict(value: int) -> int:
-    """Read an NLI judgment on its declared 0/1 scale."""
+    """Read a model judgment on its declared 0/1 scale."""
     if value not in (0, 1):
         raise ModelOutputError("invalid_verdict")
     return value

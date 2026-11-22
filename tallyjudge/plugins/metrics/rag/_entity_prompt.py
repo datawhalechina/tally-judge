@@ -1,4 +1,4 @@
-"""Entity extraction prompt and schemas from Ragas ec00339 (Apache-2.0)."""
+"""Entity extraction for context entity recall from Ragas ec00339 (Apache-2.0)."""
 
 from functools import cache
 

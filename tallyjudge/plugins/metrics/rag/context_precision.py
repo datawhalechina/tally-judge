@@ -1,12 +1,14 @@
 """ContextPrecisionWithReference and ContextPrecisionWithoutReference from Ragas ec00339 (Apache-2.0).
 
-The two renamed metrics preserve ranked average precision. No relevant verdicts make the score undefined.
+Revision 2 rejects nonbinary verdicts before computing ranked average precision.
+A list with no relevant verdicts makes the score undefined.
 """
 
 from tallyjudge.core.errors import UndefinedScore
 from tallyjudge.core.results import MetricResult
 from tallyjudge.core.usage import mark_usage_source, run_scoped_score
 from tallyjudge.plugins.metrics.rag._context import ContextJudge
+from tallyjudge.plugins.metrics.rag._judge import binary_verdict
 from tallyjudge.plugins.metrics.rag._precision_prompt import prompt
 
 
@@ -34,7 +36,7 @@ class _ContextPrecision(ContextJudge):
             judged = await self.llm.agenerate(
                 template.render(item), template.output_model
             )
-            verdict = judged.data.verdict
+            verdict = binary_verdict(judged.data.verdict)
             hits += verdict
             if verdict:
                 total += hits / rank

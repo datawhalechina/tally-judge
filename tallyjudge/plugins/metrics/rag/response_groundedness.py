@@ -1,6 +1,6 @@
 """ResponseGroundedness from Ragas ec00339 (Apache-2.0), renamed ResponseGroundednessMetric.
 
-Both judges must supply an in-scale rating. Structured retries belong to the model."""
+Available ratings are normalized as in the archive. An empty set of ratings is undefined."""
 
 from functools import cache
 
@@ -120,7 +120,7 @@ class ResponseGroundednessMetric(DualJudge):
     grades = (0, 1, 2)
     spec = MetricSpec(
         "metric.rag.response_groundedness",
-        "1",
+        "2",
         required_text_inputs("response", passages=True),
         value_range=(0.0, 1.0),
     )

@@ -23,7 +23,7 @@ class ContextJudge(MetricBase):
         contexts = Annotated[list[str], Field(min_length=1)]
         return MetricSpec(
             cls.plugin_id,
-            "1",
+            "2",
             {
                 "user_input": text,
                 cls.answer_field: text,

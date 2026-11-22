@@ -1,6 +1,6 @@
 """AnswerAccuracy from Ragas ec00339 (Apache-2.0), renamed AnswerAccuracyMetric.
 
-Both judges must supply an in-scale rating. Structured retries belong to the model."""
+Available ratings are normalized as in the archive. An empty set of ratings is undefined."""
 
 from functools import cache
 
@@ -124,7 +124,7 @@ class AnswerAccuracyMetric(DualJudge):
     grades = (0, 2, 4)
     spec = MetricSpec(
         "metric.rag.answer_accuracy",
-        "1",
+        "2",
         required_text_inputs("user_input", "response", "reference"),
         value_range=(0.0, 1.0),
     )

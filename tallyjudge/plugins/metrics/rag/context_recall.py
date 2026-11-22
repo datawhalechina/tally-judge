@@ -1,12 +1,14 @@
 """Migrate Ragas ContextRecall to ContextRecallMetric (ec00339, Apache-2.0).
 
-The denominator is the number of returned classifications. Empty classifications are undefined.
+Revision 2 rejects nonbinary attributions. The denominator is the number of
+returned classifications. Empty classifications are undefined.
 """
 
 from tallyjudge.core.errors import UndefinedScore
 from tallyjudge.core.results import MetricResult
 from tallyjudge.core.usage import mark_usage_source, run_scoped_score
 from tallyjudge.plugins.metrics.rag._context import ContextJudge
+from tallyjudge.plugins.metrics.rag._judge import binary_verdict
 from tallyjudge.plugins.metrics.rag._recall_prompt import prompt
 
 
@@ -42,4 +44,5 @@ class ContextRecallMetric(ContextJudge):
         records = result.data.classifications
         if not records:
             raise UndefinedScore("no_classifications")
-        return MetricResult(sum(record.attributed for record in records) / len(records))
+        attributed = sum(binary_verdict(record.attributed) for record in records)
+        return MetricResult(attributed / len(records))

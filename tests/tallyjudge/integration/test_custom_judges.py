@@ -147,9 +147,9 @@ async def test_direct_and_factory_judges_use_the_same_settings(judge, client):
         reply_grade(client, 3, "ok")
         await metric.ascore_inputs(inputs)
     prompts = [body["messages"][0]["content"] for _, body in client.calls]
-    assert prompts[0] == prompts[1] and "Paris" not in prompts[0]
+    assert prompts[0] != prompts[1] and all("Paris" in prompt for prompt in prompts)
     assert prompts[2] == prompts[3] and "Paris" in prompts[2]
-    assert metrics[0].config_snapshot() == metrics[1].config_snapshot()
+    assert metrics[0].config_snapshot() != metrics[1].config_snapshot()
     assert metrics[2].config_snapshot() == metrics[3].config_snapshot()
 
 
@@ -247,43 +247,34 @@ async def test_category_tie_and_output_boundaries(client, judge):
 
 
 @pytest.mark.asyncio
-async def test_fixed_rubrics_validate_reference_and_normalize_rules(judge, client):
-    rules = rubric("private level")
-    with pytest.raises(PluginError, match="rubrics"):
-        create_metric(FREE, llm=judge, rubrics={"score1_description": "bad"})
-    opts = {"llm": judge, "rubrics": rules}
-    same = create_metric(FREE, llm=judge, rubrics=dict(reversed(rules.items())))
-    original = create_metric(FREE, **opts)
-    assert same.config_snapshot() == original.config_snapshot()
-    assert (
-        create_metric(WITH_REF, llm=judge).config_snapshot()
-        != create_metric(FREE, llm=judge).config_snapshot()
+async def test_fixed_rubrics_preserve_custom_order_and_optional_reference(
+    judge, client
+):
+    rules = {"second": "private level 2", "first": "private level 1"}
+    original = create_metric(FREE, llm=judge, rubrics=rules)
+    reversed_rules = create_metric(
+        FREE, llm=judge, rubrics=dict(reversed(rules.items()))
     )
+    assert reversed_rules.config_snapshot() != original.config_snapshot()
     assert "private level" not in json.dumps(original.config_snapshot())
-    for i in range(2):
-        reply_grade(client, 4, "matches four")
-    data = Dataset.from_records(
-        [{"response": "answer", "reference": "unused reference"}]
-    )
-    for metric in (same, original):
+    data = Dataset.from_records([{"response": "answer", "reference": "some reference"}])
+    for metric in (original, reversed_rules):
+        reply_grade(client, "4", "four")
         result = await Evaluator([metric]).arun(data)
-        assert result.rows[0].metrics[FREE].reason == "matches four"
+        assert result.rows[0].metrics[FREE].value == 4.0
     prompts = [body["messages"][0]["content"] for _, body in client.calls]
-    assert prompts[0] == prompts[1] and "unused reference" not in prompts[0]
-    assert prompts[0].index("private level 1") < prompts[0].index("private level 5")
+    assert all("some reference" in prompt and "Paris" in prompt for prompt in prompts)
+    assert prompts[0].index("second: private") < prompts[0].index("first: private")
+    assert prompts[1].index("first: private") < prompts[1].index("second: private")
+    reply_grade(client, 5, "ok")
     reference_metric = create_metric(WITH_REF, llm=judge)
     missing = await Evaluator([reference_metric]).arun(
         Dataset.from_records([{"response": "answer"}])
     )
-    assert (
-        missing.rows[0].metrics[WITH_REF].error.field == "reference"
-        and len(client.calls) == 2
-    )
-    reply_grade(client, 6, "invalid")
-    reply_grade(client, "5", "wrong type")
+    assert missing.rows[0].metrics[WITH_REF].value == 5.0
+    reply_grade(client, 6, "outside the declared scoring range")
     bad = await Evaluator([reference_metric]).arun(data)
-    assert bad.rows[0].metrics[WITH_REF].error.category == "model_output_error"
-    assert "unused reference" in client.calls[2][1]["messages"][0]["content"]
+    assert bad.rows[0].metrics[WITH_REF].status == "invalid_output"
 
 
 @pytest.mark.asyncio
@@ -301,9 +292,7 @@ async def test_per_row_rubric_cache_and_readback(client, judge, tmp_path):
     )
     rows = [
         {"case_id": i, "response": "answer", "rubrics": rules}
-        for i, rules in enumerate(
-            (rubric("A"), rubric("B"), {"score5_description": "missing others"})
-        )
+        for i, rules in enumerate((rubric("A"), rubric("B"), {}))
     ]
     reply_grade(client, 2, "A feedback")
     reply_grade(client, 4, "B feedback")
@@ -318,10 +307,15 @@ async def test_per_row_rubric_cache_and_readback(client, judge, tmp_path):
     assert bad.error.field == "rubrics" and bad.usage is None
     rows[0]["rubrics"] = dict(reversed(rubric("A").items()))
     rows[1]["rubrics"]["score1_description"] = "new"
+    reply_grade(client, 5, "new order")
     reply_grade(client, 3, "changed rule")
     rerun = await evaluator.arun(Dataset.from_records(rows))
-    assert rerun.row_for(0).metrics[INSTANCE].cache_hit
-    assert rerun.row_for(1).metrics[INSTANCE].value == 3.0 and len(client.calls) == 3
+    assert not rerun.row_for(0).metrics[INSTANCE].cache_hit
+    assert rerun.row_for(0).metrics[INSTANCE].value == 5.0
+    assert rerun.row_for(0).metrics[INSTANCE].inputs_sha256 != a.inputs_sha256
+    cached = await evaluator.arun(Dataset.from_records(rows))
+    assert cached.row_for(0).metrics[INSTANCE].cache_hit
+    assert rerun.row_for(1).metrics[INSTANCE].value == 3.0 and len(client.calls) == 4
 
 
 @pytest.mark.asyncio

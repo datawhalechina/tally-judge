@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from tallyjudge import Dataset, Evaluator, create_language_model, create_metric
-from tallyjudge.core.errors import InputValidationError
+from tallyjudge.core.errors import InputValidationError, ModelOutputError
 
 
 @pytest.mark.asyncio
@@ -39,6 +39,51 @@ def make_judge(client, retries=0):
         model="offline-judge",
         structured_retries=retries,
     )
+
+
+@pytest.mark.parametrize("invalid", [2, -1])
+@pytest.mark.parametrize(
+    "name,answer_field",
+    [
+        ("context_precision_with_reference", "reference"),
+        ("context_precision_without_reference", "response"),
+        ("context_recall", "reference"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_nonbinary_verdict_fails_before_it_can_be_averaged(
+    client, name, answer_field, invalid
+):
+    metric = create_metric("metric.rag." + name, llm=make_judge(client))
+    inputs = {"user_input": "q", answer_field: "answer", "retrieved_contexts": ["a"]}
+    if name == "context_recall":
+        payload = {
+            "classifications": [
+                {"statement": "a", "reason": "test", "attributed": invalid},
+                {"statement": "b", "reason": "test", "attributed": 0},
+            ]
+        }
+    else:
+        payload = {"verdict": invalid, "reason": "test"}
+    client.chat_reply(json.dumps(payload))
+    run = await Evaluator([metric]).arun(Dataset.from_records([inputs]))
+    score = run.rows[0].metrics[metric.spec.id]
+    assert (score.status, score.value) == ("error", None)
+    assert (score.error.category, score.error.code) == (
+        "model_output_error",
+        "invalid_verdict",
+    )
+    assert score.usage.generation.requests == 1
+    assert run.summary[metric.spec.id]["valid_count"] == 0
+    assert (
+        metric.spec.revision == "2"
+        and metric.config_snapshot()["prompt_revision"] == "1"
+    )
+
+    client.chat_reply(json.dumps(payload))
+    with pytest.raises(ModelOutputError) as caught:
+        await metric.ascore_inputs(inputs)
+    assert caught.value.code == "invalid_verdict"
 
 
 @pytest.mark.parametrize("without_reference", [True, False])

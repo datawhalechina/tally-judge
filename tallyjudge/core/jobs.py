@@ -10,7 +10,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
-from tallyjudge.core.dataset import canonical_json
+from tallyjudge.core.dataset import canonical_json, encode_json
 from tallyjudge.core.errors import (
     ClientLoopError,
     InputValidationError,
@@ -140,10 +140,10 @@ class Job[T: (ScoreResult, RowTaskResult)](ABC):
         return self.record(outcome)
 
 
-def _digest(value: Any) -> str | None:
+def _digest(value: Any, *, sort_keys: bool = True) -> str | None:
     """Hash JSON-compatible arguments; custom validators may return other objects."""
     try:
-        encoded = canonical_json(value).encode("utf-8")
+        encoded = encode_json(value, sort_keys=sort_keys).encode("utf-8")
     except (TypeError, ValueError):
         return None
     return hashlib.sha256(encoded).hexdigest()
@@ -230,7 +230,8 @@ class MetricJob(Job[ScoreResult]):
         spec = self.binding.metric.spec
         try:
             inputs = self.binding.inputs_for(record)
-            self.inputs_sha256 = _digest(inputs)
+            # A nested mapping can be rendered in insertion order, e.g. a per-sample rubric.
+            self.inputs_sha256 = _digest(dict(sorted(inputs.items())), sort_keys=False)
             if self.cache is not None:
                 hit = await self._cached_score(self.cache)
                 if hit is not None:
@@ -306,7 +307,7 @@ class ExperimentJob(Job[RowTaskResult]):
                 return RowTaskResult("skipped")
             if not isinstance(output, dict):
                 raise TypeError("An experiment must return a JSON object or None")
-            return RowTaskResult("success", json.loads(canonical_json(output)))
+            return RowTaskResult("success", json.loads(encode_json(output)))
         except (UsageScopeClosed, ClientLoopError):
             raise
         except Exception as exc:
