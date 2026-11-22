@@ -3,6 +3,8 @@
 import asyncio
 import hashlib
 import json
+import sys
+import threading
 from collections import Counter
 from functools import partial
 from uuid import UUID
@@ -319,6 +321,98 @@ async def test_direct_chunks_meter_build_and_skip_unavailable_strategies():
     assert all(r["synthesizer_name"] == SINGLE for r in result.to_records())
     empty = await generator.arun([], testset_size=0)
     assert empty.attempted_count == empty.usage.generation.requests == 0
+
+
+@pytest.mark.asyncio
+async def test_prechunked_generation_ignores_blank_pages_before_building(monkeypatch):
+    monkeypatch.setitem(sys.modules, "rapidfuzz.distance", None)
+    llm, embeddings = CorpusModel(), Embeddings()
+    plugin = create_synthesizer(PLUGIN, llm=llm, embeddings=embeddings)
+    (page,) = identified(TEXT[:1])
+    expected = await plugin.arun([page], testset_size=1)
+    blanks = [
+        dict(page, chunk_id=f"blank-{i}", text=text)
+        for i, text in enumerate(("", " \n", None))
+    ]
+    repeated = await plugin.arun(iter([*blanks, page]), testset_size=1)
+    assert repeated.to_records() == expected.to_records()
+    assert repeated.usage == expected.usage
+
+
+@pytest.mark.parametrize(
+    "source",
+    ["chunks", "documents", "long_documents", "entities", "partially_annotated"],
+)
+@pytest.mark.asyncio
+async def test_missing_overlap_extra_fails_before_model_requests(monkeypatch, source):
+    from tallyjudge.plugins.synthesis.graph import build_entity_graph
+
+    monkeypatch.setitem(sys.modules, "rapidfuzz.distance", None)
+    llm, embeddings = CorpusModel(), Embeddings()
+    with pytest.raises(ImportError, match="rapidfuzz"):
+        if source == "chunks":
+            plugin = create_synthesizer(PLUGIN, llm=llm, embeddings=embeddings)
+            await plugin.arun(identified(TEXT[:2]), testset_size=1)
+        elif source in ("entities", "partially_annotated"):
+            chunks = identified(TEXT[:2])
+            if source == "partially_annotated":
+                chunks[0]["entities"] = ["Guide", "Kit"]
+            await build_entity_graph(chunks, llm=llm)
+        else:
+            words = 550 if source == "long_documents" else 110
+            docs = [
+                SourceDocument(
+                    str(i), "First " + "word " * words + "Second " + "word " * words
+                )
+                for i in range(2)
+            ]
+            await build_document_graph(
+                docs,
+                llm=llm,
+                embeddings=embeddings,
+                count_tokens=lambda s: len(s.split()),
+            )
+    assert not llm.calls and not embeddings.calls
+
+
+@pytest.mark.asyncio
+async def test_can_cancel_during_persona_grouping_before_a_model_request(monkeypatch):
+    from tallyjudge.plugins.synthesis import _strategies
+
+    loop = asyncio.get_running_loop()
+    started = asyncio.Event()
+    release = threading.Event()
+    dot = _strategies.sumprod
+
+    def slow_dot(left, right):
+        loop.call_soon_threadsafe(started.set)
+        release.wait(timeout=2)
+        return dot(left, right)
+
+    monkeypatch.setattr(_strategies, "sumprod", slow_dot)
+    chunks = [
+        dict(
+            row,
+            node_type="chunk",
+            summary=row["text"],
+            summary_embedding=[1.0],
+            entities=["Kit"],
+        )
+        for row in identified(TEXT[:2])
+    ]
+    llm = CorpusModel()
+    generator = create_synthesizer(PLUGIN, llm=llm)
+    task = asyncio.create_task(
+        generator.arun(EvidenceGraph(chunks, ()), testset_size=1)
+    )
+    try:
+        await asyncio.wait_for(started.wait(), 3)
+        task.cancel("stop")
+        with pytest.raises(asyncio.CancelledError, match="stop"):
+            await task
+        assert not llm.calls
+    finally:
+        release.set()
 
 
 @pytest.mark.asyncio

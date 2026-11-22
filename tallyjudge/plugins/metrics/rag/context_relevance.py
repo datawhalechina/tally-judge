@@ -120,7 +120,7 @@ class ContextRelevanceMetric(DualJudge):
     grades = (0, 1, 2)
     spec = MetricSpec(
         "metric.rag.context_relevance",
-        "2",
+        "3",
         required_text_inputs("user_input", passages=True),
         value_range=(0.0, 1.0),
     )

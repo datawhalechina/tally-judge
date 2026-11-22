@@ -4,6 +4,7 @@ The three eligible query families share the archived independent ceiling quotas.
 A run-local RNG and stable ordering replace process-global random and set iteration.
 """
 
+import asyncio
 from collections import Counter, defaultdict, deque
 from collections.abc import Sequence
 from hashlib import sha256
@@ -91,6 +92,23 @@ def _groups(items: list | dict) -> list[tuple[str, ...]]:
     return sorted({(item,) if isinstance(item, str) else tuple(item) for item in items})
 
 
+def _representative_summaries(items: list[tuple[str, list[float]]]) -> list[str]:
+    # The archive groups by raw dot product, even for non-unit vectors.
+    representatives = []
+    visited = set()
+    for i, (summary, vector) in enumerate(items):
+        if i in visited:
+            continue
+        group = [summary]
+        for j in range(i + 1, len(items)):
+            other, other_vector = items[j]
+            if sumprod(vector, other_vector) > 0.75:
+                visited.add(j)
+                group.append(other)
+        representatives.append(max(group, key=len))
+    return representatives
+
+
 class ScenarioPlanner:
     """Plan cases from typed nodes and relationships before asking for any answers."""
 
@@ -135,27 +153,17 @@ class ScenarioPlanner:
         ).data
 
     async def personas(self, maximum: int) -> list[Persona]:
-        rows = [r for r in self.rows.values() if r.get("summary_embedding") is not None]
-        if not rows:
+        summaries = [
+            (row["summary"], row["summary_embedding"])
+            for row in self.rows.values()
+            if row.get("summary_embedding") is not None
+        ]
+        if not summaries:
             raise ValueError(
                 "Automatic persona generation requires a graph with summary embeddings"
             )
-        # The archive uses the raw dot product here, even for non-unit vectors.
-        representatives = []
-        visited = set()
-        for i, row in enumerate(rows):
-            if i in visited:
-                continue
-            summaries = [row["summary"]]
-            for j in range(i + 1, len(rows)):
-                if (
-                    sumprod(row["summary_embedding"], rows[j]["summary_embedding"])
-                    > 0.75
-                ):
-                    visited.add(j)
-                    summaries.append(rows[j]["summary"])
-            representatives.append(max(summaries, key=len))
-        count = min(maximum, len(rows))
+        representatives = await asyncio.to_thread(_representative_summaries, summaries)
+        count = min(maximum, len(summaries))
         representatives += self.rng.choices(
             representatives, k=max(0, count - len(representatives))
         )
@@ -281,7 +289,7 @@ class ScenarioPlanner:
         return scenarios
 
     async def _abstract(self, n: int, personas: list[Persona]) -> list[Scenario]:
-        clusters = _indirect_clusters(self.similarities, n)
+        clusters = await asyncio.to_thread(_indirect_clusters, self.similarities, n)
         scenarios = []
         each = ceil(n / len(clusters))
         for cluster in clusters:
@@ -319,7 +327,9 @@ class ScenarioPlanner:
         strategies = []
         if self.single_nodes:
             strategies.append((SINGLE, self._single))
-        if self.similarities and _indirect_clusters(self.similarities, 1):
+        if self.similarities and await asyncio.to_thread(
+            _indirect_clusters, self.similarities, 1
+        ):
             strategies.append((ABSTRACT, self._abstract))
         if self.overlaps:
             strategies.append((SPECIFIC, self._specific))

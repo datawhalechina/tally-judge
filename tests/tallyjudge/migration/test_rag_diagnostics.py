@@ -531,7 +531,26 @@ async def test_granularity_examples_are_bound_to_each_metric_instance(client):
 
 
 @pytest.mark.asyncio
-async def test_judge_attempt_budget_is_independent_of_json_repair(client):
+@pytest.mark.parametrize(
+    ("budget", "replies", "outcome", "attempts"),
+    [
+        (0, [], ("undefined", None, "no_valid_ratings"), 0),
+        (1, [{"rating": 9}, {"rating": 2}], ("success", 0.5, None), 2),
+        (2, [{"rating": 9}, {"rating": 4}, {"rating": 2}], ("success", 0.75, None), 3),
+        # ec00339 retried a missing rating and scored these scripts 0.5 and 0.75.
+        # Revision 3 leaves schema repair to the model's structured retry budget.
+        (1, [{}, {"rating": 2}], ("error", None, "schema_validation"), 1),
+        (
+            2,
+            [{}, {"rating": 4}, {"rating": 2}],
+            ("error", None, "schema_validation"),
+            1,
+        ),
+    ],
+)
+async def test_judge_attempt_budget_is_independent_of_json_repair(
+    client, budget, replies, outcome, attempts
+):
     model = create_language_model(
         "model.openai_compatible.chat_completions",
         client=client,
@@ -539,20 +558,17 @@ async def test_judge_attempt_budget_is_independent_of_json_repair(client):
         structured_retries=0,
     )
     data = Dataset.from_records([dict(FACTS, user_input="question")])
-    for budget, replies, expected in [
-        (0, [], None),
-        (1, [{}, {"rating": 2}], 0.5),
-        (2, [{}, {"rating": 4}, {"rating": 2}], 0.75),
-    ]:
-        metric = create_metric(
-            "metric.rag.answer_accuracy", llm=model, max_retries=budget
-        )
-        before = len(client.calls)
-        for reply in replies:
-            client.chat_reply(json.dumps(reply))
-        run = await Evaluator([metric]).arun(data)
-        score = run.rows[0].metrics[metric.spec.id]
-        assert score.value == expected
-        assert score.status == ("undefined" if expected is None else "success")
-        assert len(client.calls) - before == len(replies)
-        assert metric.config_snapshot()["max_retries"] == budget
+    metric = create_metric("metric.rag.answer_accuracy", llm=model, max_retries=budget)
+    for reply in replies:
+        client.chat_reply(json.dumps(reply))
+
+    run = await Evaluator([metric]).arun(data)
+
+    score = run.rows[0].metrics[metric.spec.id]
+    assert (
+        score.status,
+        score.value,
+        score.error.code if score.error else None,
+    ) == outcome
+    assert len(client.calls) == attempts
+    assert metric.config_snapshot()["max_retries"] == budget

@@ -4,6 +4,7 @@ Three graph-driven strategies target independent quotas. Case IDs and separate
 planning usage let the same generated dataset feed paired TallyJudge experiments.
 """
 
+import asyncio
 from collections.abc import Iterable, Mapping
 from hashlib import sha256
 from random import Random
@@ -85,7 +86,9 @@ class RagTestsetSynthesizer:
             raise ValueError(
                 "Supply embeddings for prechunked records, or pass a graph from build_chunk_graph or build_document_graph"
             )
-        planner = ScenarioPlanner(graph, self.llm, Random(self.config.seed))
+        planner = await asyncio.to_thread(
+            ScenarioPlanner, graph, self.llm, Random(self.config.seed)
+        )
         return await planner.select(
             size, self.config.personas, self.config.num_personas
         )

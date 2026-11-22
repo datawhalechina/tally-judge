@@ -8,10 +8,11 @@ from pydantic import BaseModel, Field
 from tallyjudge.core.errors import ModelOutputError
 from tallyjudge.core.prompts import StructuredPrompt
 from tallyjudge.core.results import MetricResult
-from tallyjudge.core.usage import mark_usage_source
-from tallyjudge.interfaces.metrics import MetricBase, MetricSpec
+from tallyjudge.interfaces.metrics import MetricSpec
 from tallyjudge.interfaces.models import EmbeddingModel, LanguageModel
 from tallyjudge.plugins._vectors import unit_vector
+from tallyjudge.plugins.metrics._cosine import embedding_vectors
+from tallyjudge.plugins.metrics.rag._judge import RagJudge
 
 
 class AnswerRelevanceInput(BaseModel):
@@ -79,7 +80,7 @@ class AnswerRelevanceConfig(BaseModel):
     strictness: int = Field(default=3, gt=0)
 
 
-class AnswerRelevanceMetric(MetricBase):
+class AnswerRelevanceMetric(RagJudge):
     """Compare the original question with questions inferred from the answer."""
 
     spec = MetricSpec(
@@ -97,18 +98,14 @@ class AnswerRelevanceMetric(MetricBase):
     ):
         if type(strictness) is not int or strictness < 1:
             raise ValueError("strictness must be a positive integer")
-        self.llm = llm
+        super().__init__(llm)
         self.embeddings = embeddings
         self.strictness = strictness
 
     def config_snapshot(self) -> dict[str, Any]:
         return {
-            "prompt_revision": "1",
+            **super().config_snapshot(),
             "strictness": self.strictness,
-            "llm": {
-                "plugin_id": self.llm.plugin_id,
-                "config": self.llm.config_snapshot(),
-            },
             "embeddings": {
                 "plugin_id": self.embeddings.plugin_id,
                 "config": self.embeddings.config_snapshot(),
@@ -121,23 +118,19 @@ class AnswerRelevanceMetric(MetricBase):
             {"user_input": user_input, "response": response}
         )
 
-    async def _ascore_validated(self, user_input: str, response: str) -> MetricResult:
+    async def _score(self, user_input: str, response: str) -> MetricResult:
         prompt = AnswerRelevancePrompt().render(AnswerRelevanceInput(response=response))
-        mark_usage_source("generation", self.llm.plugin_id, self.llm.usage_tracking)
         questions = []
         flags = []
         for _ in range(self.strictness):
-            result = (await self.llm.agenerate(prompt, AnswerRelevanceOutput)).data
+            result = await self._ask(prompt, AnswerRelevanceOutput)
             if result.question:
                 questions.append(result.question)
                 flags.append(result.noncommittal)
         if not questions:
             return MetricResult(0.0)
-        mark_usage_source(
-            "embedding", self.embeddings.plugin_id, self.embeddings.usage_tracking
-        )
-        original = (await self.embeddings.aembed_texts([user_input])).vectors
-        generated = (await self.embeddings.aembed_texts(questions)).vectors
+        original = await embedding_vectors(self.embeddings, [user_input])
+        generated = await embedding_vectors(self.embeddings, questions)
         if (
             len(original) != 1
             or len(generated) != len(questions)

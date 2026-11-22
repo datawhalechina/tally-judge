@@ -4,7 +4,8 @@ Keep caller-owned source IDs and the original transform order. The raw-document
 pipeline selects one length branch for the corpus. Prechunked inputs skip splitting.
 """
 
-from collections.abc import Callable, Iterable, Mapping, Sequence
+import asyncio
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from itertools import combinations
 from math import sumprod
 from typing import Any
@@ -30,6 +31,7 @@ from tallyjudge.plugins.synthesis._prompts import NERPrompt, TextWithExtractionL
 from tallyjudge.plugins.synthesis.graph import (
     EvidenceGraph,
     EvidenceRelation,
+    _overlap_distance,
     entity_overlaps,
     extraction_windows,
 )
@@ -131,6 +133,14 @@ async def _summary_links(
         embedding_usage.add(batch.usage)
         embedding_usage.complete &= embeddings.usage_tracking == "per_request"
 
+    return await asyncio.to_thread(
+        _summary_relations, vectors, threshold
+    ), embedding_usage
+
+
+def _summary_relations(
+    vectors: dict[str, list[float]], threshold: float
+) -> list[EvidenceRelation]:
     semantic = []
     for (a, left), (b, right) in combinations(vectors.items(), 2):
         similarity = sumprod(left, right)
@@ -144,7 +154,7 @@ async def _summary_links(
                     properties={"summary_similarity": similarity},
                 )
             )
-    return semantic, embedding_usage
+    return semantic
 
 
 async def _enrich(
@@ -189,7 +199,7 @@ async def _enrich(
     selected = [row for row in subjects if row["chunk_id"] not in rejected]
     for row in selected:
         await extractor.annotate(row)
-    semantic.extend(entity_overlaps(selected))
+    semantic.extend(await asyncio.to_thread(entity_overlaps, selected))
     hierarchy = [
         e for e in edges if e.source not in rejected and e.target not in rejected
     ]
@@ -202,18 +212,26 @@ async def _enrich(
     )
 
 
+def _chunk_records(chunks: Iterable[Mapping[str, Any]]) -> Iterator[dict[str, Any]]:
+    for row in chunks:
+        text = row["text"]
+        if text is None or isinstance(text, str) and not text.strip():
+            continue
+        EvidenceChunk.model_validate(row)
+        yield dict(row, node_type="chunk")
+
+
 async def build_chunk_graph(
     chunks: Iterable[Mapping[str, Any]],
     *,
     llm: LanguageModel,
     embeddings: EmbeddingModel,
 ) -> EvidenceGraph:
-    """Apply the archived prechunked pipeline to identified passages of any length."""
-    # Materialize and validate source identities before spending model requests.
-    source = EvidenceGraph(chunks, ())
-    rows = [dict(row, node_type="chunk") for row in source]
-    for row in rows:
-        EvidenceChunk.model_validate(row)
+    """Build the archived prechunked graph, skipping blank pages before indexing their IDs."""
+    source = EvidenceGraph(_chunk_records(chunks), ())
+    rows = list(source._records.values())
+    if len(rows) > 1:
+        _overlap_distance()
     return await _enrich(
         rows,
         rows,
@@ -270,6 +288,9 @@ async def build_document_graph(
         for row, size in zip(rows, sizes, strict=True)
         if size > (500 if long else 100)
     ]
+    # A single long raw document can yield several entity-bearing children.
+    if long or len(rows) > 1:
+        _overlap_distance()
     extractor = _Extractors(llm)
     children = []
     edges = []

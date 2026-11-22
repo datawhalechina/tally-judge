@@ -210,6 +210,13 @@ async def check_synthesis():
 
     client.outputs = iter([{"entities": ["Kit"]}])
     graph = await build_entity_graph(
+        [{"chunk_id": "b", "document_id": "y", "text": "Kit is in Rome."}],
+        llm=llm,
+    )
+    assert graph.generation_usage.requests == 1 and graph.chunks[0]["entities"] == [
+        "Kit"
+    ]
+    graph = await build_entity_graph(
         [
             {
                 "chunk_id": "a",
@@ -217,11 +224,11 @@ async def check_synthesis():
                 "text": "Ada built Kit.",
                 "entities": ["Kit"],
             },
-            {"chunk_id": "b", "document_id": "y", "text": "Kit is in Rome."},
+            *graph.chunks,
         ],
         llm=llm,
     )
-    assert graph.relations == () and graph.generation_usage.requests == 1
+    assert graph.relations == () and graph.generation_usage.requests == 0
     # An explicit archived edge is sufficient for mixed sampling in a base install.
     graph = EvidenceGraph(graph.chunks, [("a", "b")])
     restored = EvidenceGraph.from_dict(json.loads(json.dumps(graph.to_dict())))

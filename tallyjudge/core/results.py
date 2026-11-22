@@ -55,6 +55,9 @@ class ScoreResult:
     including experiment output overlays and parameter defaults. It lets saved runs
     be compared without retaining raw inputs; it is None for v1 records, rows that
     never validated, and arguments that are not JSON values.
+
+    Experiment scores also fingerprint individual validated arguments so callers
+    can compare controls while allowing selected application outputs to differ.
     """
 
     status: Status
@@ -64,6 +67,7 @@ class ScoreResult:
     usage: ScoreUsage | None = None
     cache_hit: bool = False
     inputs_sha256: str | None = None
+    input_sha256_by_name: dict[str, str | None] | None = None
 
 
 @dataclass(frozen=True)
@@ -206,9 +210,13 @@ class RunResult:
             del data["metadata"]
         if self.schema_version == 1:
             del data["events_complete"]
-            for row in data["rows"]:
+        for row in data["rows"]:
+            if self.schema_version == 1:
                 del row["task"]
-                for score in row["metrics"].values():
+            for score in row["metrics"].values():
+                if self.schema_version < 3 or score["input_sha256_by_name"] is None:
+                    del score["input_sha256_by_name"]
+                if self.schema_version == 1:
                     del score["cache_hit"]
                     del score["inputs_sha256"]
         return data

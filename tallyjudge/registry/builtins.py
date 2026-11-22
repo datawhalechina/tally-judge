@@ -248,6 +248,7 @@ BUILTINS = (
         "tallyjudge.plugins.models.openai_compatible:OpenAICompatibleLanguageModel",
         config_type="tallyjudge.plugins.models.openai_compatible:ChatConfig",
         dependencies={"client": "client"},
+        factory_validates_config=True,
     ),
     PluginSpec(
         "embedding.openai_compatible.embeddings",
@@ -256,6 +257,7 @@ BUILTINS = (
         "tallyjudge.plugins.embeddings.openai_compatible:OpenAICompatibleEmbeddingModel",
         config_type="tallyjudge.plugins.embeddings.openai_compatible:EmbeddingConfig",
         dependencies={"client": "client"},
+        factory_validates_config=True,
     ),
     PluginSpec(
         "synthesis.testset.rag",

@@ -86,7 +86,7 @@ class Evaluator:
             raise
         except BaseException:
             # Save only a run this call started; a reused collector may hold an older one.
-            if collector._result is not previous:
+            if self.backend is not None and collector._result is not previous:
                 await self._save_partial(
                     collector.snapshot(), collector._cleanup_deadline
                 )

@@ -1,7 +1,6 @@
 """One scheduled unit of work and its accepted terminal result."""
 
 import asyncio
-import hashlib
 import inspect
 import json
 import logging
@@ -10,7 +9,12 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
-from tallyjudge.core.dataset import canonical_json, encode_json
+from tallyjudge.core.dataset import (
+    arguments_sha256,
+    canonical_json,
+    encode_json,
+    json_sha256,
+)
 from tallyjudge.core.errors import (
     ClientLoopError,
     InputValidationError,
@@ -140,15 +144,6 @@ class Job[T: (ScoreResult, RowTaskResult)](ABC):
         return self.record(outcome)
 
 
-def _digest(value: Any, *, sort_keys: bool = True) -> str | None:
-    """Hash JSON-compatible arguments; custom validators may return other objects."""
-    try:
-        encoded = encode_json(value, sort_keys=sort_keys).encode("utf-8")
-    except (TypeError, ValueError):
-        return None
-    return hashlib.sha256(encoded).hexdigest()
-
-
 @dataclass
 class MetricJob(Job[ScoreResult]):
     binding: MetricBinding
@@ -156,6 +151,7 @@ class MetricJob(Job[ScoreResult]):
     cache: ScoreCache | None
     cache_key: str | None = field(default=None, init=False)
     inputs_sha256: str | None = field(default=None, init=False)
+    input_sha256_by_name: dict[str, str | None] | None = field(default=None, init=False)
 
     def __post_init__(self) -> None:
         self.key = self.binding.key
@@ -166,7 +162,9 @@ class MetricJob(Job[ScoreResult]):
 
     def store(self, outcome: ScoreResult) -> None:
         self.row.metrics[self.binding.key] = replace(
-            outcome, inputs_sha256=self.inputs_sha256
+            outcome,
+            inputs_sha256=self.inputs_sha256,
+            input_sha256_by_name=self.input_sha256_by_name,
         )
         if outcome.cache_hit:
             self.events.emit(
@@ -204,7 +202,9 @@ class MetricJob(Job[ScoreResult]):
             for k, v in self.metadata.items()
             if k not in ("input_map", "value_range")
         }
-        key = _digest([cache.namespace, scoring, self.inputs_sha256])
+        key = json_sha256(
+            [cache.namespace, scoring, self.inputs_sha256], sort_keys=True
+        )
         self.cache_key = key
         if key is None:
             return None
@@ -229,9 +229,13 @@ class MetricJob(Job[ScoreResult]):
     async def perform(self, record: dict[str, Any]) -> ScoreResult:
         spec = self.binding.metric.spec
         try:
-            inputs = self.binding.inputs_for(record)
-            # A nested mapping can be rendered in insertion order, e.g. a per-sample rubric.
-            self.inputs_sha256 = _digest(dict(sorted(inputs.items())), sort_keys=False)
+            inputs = self.binding.inputs_for(record, shared_row=True)
+            self.inputs_sha256 = arguments_sha256(inputs)
+            if self.row.task is not None:
+                self.input_sha256_by_name = {
+                    name: json_sha256(value, sort_keys=False)
+                    for name, value in inputs.items()
+                }
             if self.cache is not None:
                 hit = await self._cached_score(self.cache)
                 if hit is not None:

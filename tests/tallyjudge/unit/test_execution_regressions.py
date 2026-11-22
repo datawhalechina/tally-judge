@@ -62,6 +62,37 @@ async def assert_returns(task):
 
 
 @pytest.mark.asyncio
+async def test_cancel_without_storage_defers_snapshot_until_requested(monkeypatch):
+    started = asyncio.Event()
+
+    class WaitingMetric(MetricBase):
+        spec = MetricSpec("metric.test.wait", "1", {})
+
+        async def ascore(self):
+            started.set()
+            await asyncio.Future()
+
+    collector = RunCollector()
+    snapshot = collector.snapshot
+    snapshots = []
+
+    def counted():
+        snapshots.append(None)
+        return snapshot()
+
+    monkeypatch.setattr(collector, "snapshot", counted)
+    evaluation = asyncio.create_task(
+        Evaluator([WaitingMetric()]).arun(records("one", "two"), collector=collector)
+    )
+    await started.wait()
+    evaluation.cancel("stop")
+    with pytest.raises(asyncio.CancelledError, match="stop"):
+        await evaluation
+    assert snapshots == []
+    assert collector.snapshot().run_status == "cancelled"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "mode",
     [

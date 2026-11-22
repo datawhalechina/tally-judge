@@ -51,6 +51,13 @@ def test_archived_edge_ids_and_source_survive_conversion():
     assert [chunks[key]["document_id"] for key in (a, b)] == ["manual", "manual"]
     reloaded = EvidenceGraph.from_dict(json.loads(json.dumps(graph.to_dict())))
     assert reloaded.chunks == graph.chunks and reloaded.relations == graph.relations
+    assert not reloaded.generation_usage.complete
+    assert reloaded.embedding_usage is None
+    local = EvidenceGraph(graph.chunks, graph.relations)
+    roundtrip = EvidenceGraph.from_dict(local.to_dict())
+    assert (
+        roundtrip.generation_usage.complete and roundtrip.generation_usage.requests == 0
+    )
 
 
 @pytest.mark.parametrize(

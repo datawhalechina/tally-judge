@@ -236,7 +236,9 @@ async def test_entity_graph_reuses_labels_and_extracts_an_unlabelled_single_node
 
 
 @pytest.mark.asyncio
-async def test_cancelling_entity_extraction_stops_after_the_inflight_request(client):
+async def test_cancelling_entity_extraction_stops_after_the_inflight_request(
+    client, monkeypatch
+):
     from tallyjudge.plugins.synthesis.graph import build_entity_graph
 
     started, returned = asyncio.Event(), asyncio.Event()
@@ -257,11 +259,51 @@ async def test_cancelling_entity_extraction_stops_after_the_inflight_request(cli
         client=client,
         model="fixture",
     )
-    chunks = [dict(row, entities=[]) for row in split_documents(DOCS)]
+    # Multiple extraction windows exercise cancellation independently of fuzzy matching.
+    monkeypatch.setattr(
+        "tallyjudge.plugins.synthesis.graph.extraction_windows",
+        lambda text, limit: (text[:5], text[5:]),
+    )
+    chunks = [dict(next(split_documents(DOCS)), entities=[])]
     task = asyncio.create_task(build_entity_graph(chunks, llm=llm))
     await asyncio.wait_for(started.wait(), 2)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
+        await task
+    await asyncio.wait_for(returned.wait(), 2)
+    assert len(client.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_cancelling_similarity_build_stops_further_embedding_batches(client):
+    from tallyjudge import create_embedding_model
+    from tallyjudge.plugins.synthesis.graph import build_similarity_graph
+
+    started, returned = asyncio.Event(), asyncio.Event()
+    client.embedding_reply([(0, [1.0])])
+    late_reply = client.responses.pop()
+
+    async def delayed_reply():
+        started.set()
+        try:
+            await asyncio.Future()
+        except asyncio.CancelledError:
+            returned.set()
+            return late_reply
+
+    client.responses.extend([delayed_reply, late_reply])
+    embeddings = create_embedding_model(
+        "embedding.openai_compatible.embeddings",
+        client=client,
+        model="fixture",
+        batch_size=1,
+    )
+    task = asyncio.create_task(
+        build_similarity_graph(split_documents(DOCS), embeddings=embeddings)
+    )
+    await asyncio.wait_for(started.wait(), 2)
+    task.cancel("stop")
+    with pytest.raises(asyncio.CancelledError, match="stop"):
         await task
     await asyncio.wait_for(returned.wait(), 2)
     assert len(client.calls) == 1

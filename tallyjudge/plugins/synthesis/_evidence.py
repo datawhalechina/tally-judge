@@ -5,6 +5,7 @@ import hashlib
 import json
 from abc import ABC, abstractmethod
 from collections.abc import Coroutine, Iterable, Mapping
+from copy import deepcopy
 from typing import Any
 
 from pydantic import ConfigDict
@@ -21,6 +22,7 @@ from tallyjudge.interfaces.synthesis import (
     SynthesisResult,
 )
 from tallyjudge.plugins.synthesis._prompts import Persona
+from tallyjudge.plugins.synthesis.graph import EvidenceGraph
 from tallyjudge.plugins.synthesis.scenarios import (
     EvidenceChunk,
     MultiHopScenario,
@@ -110,10 +112,19 @@ class EvidenceSynthesizer(ABC):
         """Select without replacement and generate sequentially. Failed candidates keep their usage."""
         if type(testset_size) is not int or testset_size < 0:
             raise ValueError("testset_size must be a nonnegative integer")
-        selected = self.select(chunks, testset_size) if testset_size else []
         result = SynthesisResult(self.plugin_id, self.config_snapshot(), testset_size)
         progress = collector if collector is not None else SynthesisCollector()
         with progress.collect(result):
+            if not testset_size:
+                return result
+            # A caller-owned iterator may reuse a mutable row or be bound to this thread.
+            source = (
+                chunks
+                if isinstance(chunks, EvidenceGraph)
+                else [deepcopy(dict(row)) for row in chunks]
+            )
+            selected = await asyncio.to_thread(self.select, source, testset_size)
+            del source
             for ordinal, evidence in enumerate(selected):
                 chunk = evidence[0]
                 ids = tuple(item.chunk_id for item in evidence)

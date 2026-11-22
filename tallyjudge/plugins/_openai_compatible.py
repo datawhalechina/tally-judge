@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import sys
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -26,6 +27,10 @@ class ClientTransport:
     """Use a retry-disabled view of the caller-owned client on the first request's loop."""
 
     def __init__(self, client: Any, config: ClientConfig, kind: RequestKind):
+        # An injected SDK client has already loaded openai. Other compatible clients need no SDK.
+        sync_client = getattr(sys.modules.get("openai"), "OpenAI", ())
+        if isinstance(client, sync_client):
+            raise TypeError("Pass AsyncOpenAI for asynchronous model requests")
         view = client.with_options(max_retries=0, timeout=config.request_timeout)
         self.kind: RequestKind = kind
         resource = view.chat.completions if kind == "generation" else view.embeddings

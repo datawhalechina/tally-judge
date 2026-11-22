@@ -5,9 +5,10 @@ and find_indirect_clusters, NERExtractor and OverlapScoreBuilder. Caller-owned
 chunk IDs replace graph node UUIDs.
 """
 
+import asyncio
 import math
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from copy import deepcopy
 from dataclasses import asdict, dataclass
 from functools import cached_property
@@ -204,10 +205,25 @@ class EvidenceGraph:
         pairs = [
             (edge.source, edge.target) for edge in typed if edge.type in relation_types
         ]
-        return cls(chunks, pairs, relationships=typed)
+        # KnowledgeGraph.save records nodes and edges but no historical request totals.
+        return cls(
+            chunks,
+            pairs,
+            relationships=typed,
+            generation_usage=UsageSummary(complete=False),
+        )
 
     def __iter__(self) -> Iterator[Mapping[str, Any]]:
         return (deepcopy(row) for row in self._records.values())
+
+
+def _overlap_distance() -> Callable[[str, str], float]:
+    try:
+        return import_module("rapidfuzz.distance").JaroWinkler.distance
+    except ImportError as exc:
+        raise ImportError(
+            "Entity overlap matching requires rapidfuzz; install tallyjudge[synthesis-graph]"
+        ) from exc
 
 
 def entity_overlaps(chunks: Iterable[Mapping[str, Any]]) -> list[EvidenceRelation]:
@@ -222,7 +238,7 @@ def entity_overlaps(chunks: Iterable[Mapping[str, Any]]) -> list[EvidenceRelatio
     eligible = [(key, labels) for key, labels in eligible if labels]
     if len(eligible) < 2:
         return []
-    distance = import_module("rapidfuzz.distance").JaroWinkler.distance
+    distance = _overlap_distance()
 
     edges = []
     for (first, left), (second, right) in combinations(eligible, 2):
@@ -298,16 +314,17 @@ async def build_entity_graph(
 ) -> EvidenceGraph:
     """Extract missing labels from individual chunks and connect shared mentions.
 
-    Preannotated chunks retain their labels. The archive extracts entities even for
-    a single chunk. Graph usage is recorded separately from question generation.
+    Preannotated chunks retain their labels. For a multi-chunk graph requiring
+    extraction, check the overlap dependency before dispatching model requests.
     """
     evidence = EvidenceGraph(chunks, ())
     if max_token_limit < 1:
         raise ValueError("max_token_limit must be positive")
+    missing = [row for row in evidence._records.values() if not row.get("entities")]
+    if missing and len(evidence._records) > 1:
+        _overlap_distance()
     template = NERPrompt()
-    for record in evidence._records.values():
-        if record.get("entities"):
-            continue
+    for record in missing:
         entities = []
         for window in extraction_windows(record["text"], max_token_limit):
             mark_usage_source("generation", llm.plugin_id, llm.usage_tracking)
@@ -321,10 +338,26 @@ async def build_entity_graph(
             evidence._generation_usage.add(reply.usage)
             evidence._generation_usage.complete &= llm.usage_tracking == "per_request"
         record["entities"] = entities
-    overlaps = entity_overlaps(evidence._records.values())
+    overlaps = await asyncio.to_thread(entity_overlaps, evidence._records.values())
     evidence._relationships = tuple(overlaps)
     evidence._set_relations((edge.source, edge.target) for edge in overlaps)
     return evidence
+
+
+def _similarity_pairs(
+    nodes: list[EvidenceChunk], vectors: list[list[float]], threshold: float
+) -> list[tuple[str, str]]:
+    if len(vectors) != len(nodes) or len({len(v) for v in vectors}) != 1:
+        raise ModelOutputError("invalid_embedding")
+    normalized = [unit_vector(v) for v in vectors]
+    pairs = []
+    for a, b in combinations(range(len(nodes)), 2):
+        dot = math.fsum(
+            x * y for x, y in zip(normalized[a], normalized[b], strict=True)
+        )
+        if dot >= threshold:
+            pairs.append((nodes[a].chunk_id, nodes[b].chunk_id))
+    return pairs
 
 
 async def build_similarity_graph(
@@ -340,15 +373,13 @@ async def build_similarity_graph(
     nodes = list(evidence._evidence.values())
     if len(nodes) < 2:
         return evidence
-    batch = await embeddings.aembed_texts([node.text for node in nodes])
-    if len(batch.vectors) != len(nodes) or len({len(v) for v in batch.vectors}) != 1:
-        raise ModelOutputError("invalid_embedding")
-    vectors = [unit_vector(v) for v in batch.vectors]
-    pairs = []
-    for a, b in combinations(range(len(nodes)), 2):
-        dot = math.fsum(x * y for x, y in zip(vectors[a], vectors[b], strict=True))
-        if dot >= threshold:
-            pairs.append((nodes[a].chunk_id, nodes[b].chunk_id))
+    mark_usage_source("embedding", embeddings.plugin_id, embeddings.usage_tracking)
+    batch = await run_scoped_score(
+        embeddings.aembed_texts([node.text for node in nodes])
+    )
+    pairs = await asyncio.to_thread(_similarity_pairs, nodes, batch.vectors, threshold)
     evidence._set_relations(pairs)
-    evidence._embedding_usage = batch.usage
+    usage = UsageSummary(complete=embeddings.usage_tracking == "per_request")
+    usage.add(batch.usage)
+    evidence._embedding_usage = usage
     return evidence

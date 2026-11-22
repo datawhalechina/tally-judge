@@ -1,6 +1,7 @@
 import asyncio
 import sys
 from types import SimpleNamespace as NS
+from unittest.mock import patch
 
 import pytest
 from pydantic import BaseModel
@@ -23,7 +24,7 @@ from tallyjudge.core.errors import (
 )
 from tallyjudge.core.prompts import PromptInput
 from tallyjudge.core.usage import UsageSummary
-from tallyjudge.interfaces.models import GenerationResult
+from tallyjudge.interfaces.models import EmbeddingResult, GenerationResult
 from tallyjudge.registry import PluginRegistry, PluginSpec, registry
 
 CHAT = "model.openai_compatible.chat_completions"
@@ -69,6 +70,30 @@ def test_factories_and_lazy_descriptions(client):
         judge(object())
     assert isinstance(error.value.__cause__, AttributeError)
     assert client.calls == []
+
+
+@pytest.mark.parametrize("make_model", [judge, embedder])
+def test_model_configuration_is_validated_once(client, make_model):
+    from tallyjudge.plugins.embeddings.openai_compatible import EmbeddingConfig
+    from tallyjudge.plugins.models.openai_compatible import ChatConfig
+
+    schema = ChatConfig if make_model is judge else EmbeddingConfig
+    with patch.object(
+        schema, "__pydantic_validator__", wraps=schema.__pydantic_validator__
+    ) as validator:
+        make_model(client)
+    assert validator.validate_python.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_client_resource_can_return_an_awaitable_from_a_regular_method(client):
+    def create(**kwargs):
+        return client.generate(**kwargs)
+
+    client.chat.completions.create = create
+    client.chat_reply('{"answer":"ok"}')
+    result = await judge(client).agenerate(PromptInput.from_text("question"), Response)
+    assert result.data.answer == "ok"
 
 
 @pytest.mark.asyncio
@@ -200,6 +225,65 @@ async def test_external_cancel_seals_inflight_and_stops_late_request(client):
     await asyncio.sleep(0)
     assert collector.snapshot().to_json() == before
     assert len(client.calls) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("plugin_id", "expected"),
+    [
+        (FAITH, ["generation"]),
+        (RELEVANCE, ["generation"]),
+        (RELEVANCE, ["generation", "embedding"]),
+    ],
+)
+async def test_cancelled_direct_score_stops_after_a_late_model_reply(
+    plugin_id, expected
+):
+    entered, returned = asyncio.Event(), asyncio.Event()
+    requests = []
+
+    async def record(kind):
+        requests.append(kind)
+        if returned.is_set():
+            pytest.fail("The cancelled score started another request")
+        if len(requests) == len(expected):
+            entered.set()
+            try:
+                await asyncio.Future()
+            except asyncio.CancelledError:
+                returned.set()
+
+    async def generate(prompt, schema):
+        await record("generation")
+        data = (
+            {"statements": ["claim"]}
+            if plugin_id == FAITH
+            else {"question": "q", "noncommittal": 0}
+        )
+        return GenerationResult(schema(**data), UsageSummary())
+
+    async def embed(texts):
+        await record("embedding")
+        return EmbeddingResult([[1.0] for _ in texts], UsageSummary())
+
+    model = NS(
+        plugin_id="model.test.judge",
+        usage_tracking="untracked",
+        config_snapshot=dict,
+        agenerate=generate,
+        aembed_texts=embed,
+    )
+    settings = {"embeddings": model, "strictness": 1} if plugin_id == RELEVANCE else {}
+    metric = create_metric(plugin_id, llm=model, **settings)
+    task = asyncio.create_task(
+        metric.ascore(**{key: ROW[key] for key in metric.spec.inputs})
+    )
+    await asyncio.wait_for(entered.wait(), 1)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    await asyncio.wait_for(returned.wait(), 1)
+    assert requests == expected
 
 
 @pytest.mark.asyncio

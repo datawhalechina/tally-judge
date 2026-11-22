@@ -1,10 +1,14 @@
-"""Paired normalized ratings migrated from Ragas ec00339 (Apache-2.0)."""
+"""Paired normalized ratings migrated from Ragas ec00339 (Apache-2.0).
+
+Revision 3 propagates model output failures so the adapter owns the structured
+retry budget. Each judge repeats its prompt only for a rating outside its scale.
+"""
 
 from typing import Any, ClassVar
 
 from pydantic import Field
 
-from tallyjudge.core.errors import ModelOutputError, UndefinedScore
+from tallyjudge.core.errors import UndefinedScore
 from tallyjudge.core.prompts import StructuredPrompt
 from tallyjudge.core.results import MetricResult
 from tallyjudge.interfaces.models import LanguageModel
@@ -19,7 +23,7 @@ class DualJudgeConfig(EmptyConfig):
 
 
 class DualJudge(RagJudge):
-    """Normalize the available ratings after the archived per-judge attempt budget."""
+    """Normalize the ratings available within each judge's attempt budget."""
 
     grades: ClassVar[tuple[int, ...]]
 
@@ -41,10 +45,7 @@ class DualJudge(RagJudge):
         for template, fields in ((prompts[0], first), (prompts[1], second)):
             request = template.render(template.input_model(**fields))
             for _ in range(self.max_retries):
-                try:
-                    rating = (await self._ask(request, template.output_model)).rating
-                except ModelOutputError:
-                    continue
+                rating = (await self._ask(request, template.output_model)).rating
                 if rating in self.grades:
                     ratings.append(rating)
                     break

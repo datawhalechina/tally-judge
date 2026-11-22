@@ -45,6 +45,36 @@ def model(client, name="diagnostic"):
     )
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("body", "finish", "retries", "code", "attempts"),
+    [
+        ("{}", "content_filter", 0, "refusal", 1),
+        ("{}", "length", 1, "truncated", 1),
+        ("not JSON", "stop", 0, "invalid_json", 1),
+        ("{}", "stop", 1, "schema_validation", 2),
+    ],
+)
+async def test_second_judge_propagates_model_failure(
+    client, body, finish, retries, code, attempts
+):
+    judge = create_language_model(
+        "model.openai_compatible.chat_completions",
+        model="diagnostic",
+        client=client,
+        structured_retries=retries,
+    )
+    metric = create_metric("metric.rag.answer_accuracy", llm=judge)
+    client.chat_reply('{"rating":4}')
+    for _ in range(5 * (retries + 1)):
+        client.chat_reply(body, finish=finish)
+    result = await Evaluator([metric]).arun(Dataset.from_records([ROW]))
+    score = result.rows[0].metrics[metric.spec.id]
+    assert score.status == "error"
+    assert (score.error.category, score.error.code) == ("model_output_error", code)
+    assert score.usage.generation.requests == len(client.calls) == 1 + attempts
+
+
 @pytest.mark.parametrize(
     ("metric", "settings", "replies", "code"),
     [

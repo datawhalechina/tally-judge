@@ -243,6 +243,7 @@ def test_redacted_archives_without_digests_report_unverified_inputs():
     data = result.to_dict(include_inputs=False)
     for row in data["rows"]:
         row["metrics"][EXACT]["inputs_sha256"] = None
+        row["metrics"][EXACT].pop("input_sha256_by_name")
     old = RunResult.from_dict(data)
     score = compare_runs(old, old).rows[0].metrics[EXACT]
     assert score.changes == ("experiment_input_unverified",)

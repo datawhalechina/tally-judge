@@ -1,16 +1,15 @@
 """Faithfulness scoring and original prompts from Ragas ec00339 (Apache-2.0)."""
 
 import logging
-from typing import Annotated, Any
+from typing import Annotated
 
 from pydantic import BaseModel, Field
 
 from tallyjudge.core.errors import UndefinedScore
 from tallyjudge.core.prompts import StructuredPrompt
 from tallyjudge.core.results import MetricResult
-from tallyjudge.core.usage import mark_usage_source
-from tallyjudge.interfaces.metrics import MetricBase, MetricSpec
-from tallyjudge.interfaces.models import LanguageModel
+from tallyjudge.interfaces.metrics import MetricSpec
+from tallyjudge.plugins.metrics.rag._judge import RagJudge
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +133,7 @@ class NLIStatementPrompt(StructuredPrompt[NLIStatementInput, NLIStatementOutput]
     ]
 
 
-class FaithfulnessMetric(MetricBase):
+class FaithfulnessMetric(RagJudge):
     """Score the fraction of returned NLI verdicts supported by the retrieved contexts."""
 
     spec = MetricSpec(
@@ -148,18 +147,6 @@ class FaithfulnessMetric(MetricBase):
         value_range=(0.0, 1.0),
     )
 
-    def __init__(self, llm: LanguageModel):
-        self.llm = llm
-
-    def config_snapshot(self) -> dict[str, Any]:
-        return {
-            "prompt_revision": "1",
-            "llm": {
-                "plugin_id": self.llm.plugin_id,
-                "config": self.llm.config_snapshot(),
-            },
-        }
-
     async def ascore(
         self, user_input: str, response: str, retrieved_contexts: list[str]
     ) -> MetricResult:
@@ -172,16 +159,13 @@ class FaithfulnessMetric(MetricBase):
             }
         )
 
-    async def _ascore_validated(
+    async def _score(
         self, user_input: str, response: str, retrieved_contexts: list[str]
     ) -> MetricResult:
-        mark_usage_source("generation", self.llm.plugin_id, self.llm.usage_tracking)
         prompt = StatementGeneratorPrompt().render(
             StatementGeneratorInput(question=user_input, answer=response)
         )
-        statements = (
-            await self.llm.agenerate(prompt, StatementGeneratorOutput)
-        ).data.statements
+        statements = (await self._ask(prompt, StatementGeneratorOutput)).statements
         if not statements:
             raise UndefinedScore("no_statements")
         prompt = NLIStatementPrompt().render(
@@ -189,9 +173,7 @@ class FaithfulnessMetric(MetricBase):
                 context="\n".join(retrieved_contexts), statements=statements
             )
         )
-        verdicts = (
-            await self.llm.agenerate(prompt, NLIStatementOutput)
-        ).data.statements
+        verdicts = (await self._ask(prompt, NLIStatementOutput)).statements
         if not verdicts:
             raise UndefinedScore("no_verdicts")
         if len(verdicts) != len(statements):

@@ -120,7 +120,7 @@ class ResponseGroundednessMetric(DualJudge):
     grades = (0, 1, 2)
     spec = MetricSpec(
         "metric.rag.response_groundedness",
-        "2",
+        "3",
         required_text_inputs("response", passages=True),
         value_range=(0.0, 1.0),
     )

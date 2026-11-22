@@ -6,6 +6,8 @@ import pytest
 
 from tallyjudge import (
     Dataset,
+    Evaluator,
+    MetricBinding,
     RunCollector,
     RunResult,
     compare_experiments,
@@ -13,6 +15,7 @@ from tallyjudge import (
     create_metric,
     create_storage_backend,
     experiment,
+    numeric_metric,
 )
 
 ROWS = [
@@ -112,7 +115,6 @@ async def test_cancelled_experiment_saves_metadata():
 
 
 def test_lower_score_counts_as_improvement_and_reference_alias_is_protected():
-    from tallyjudge import MetricBinding
     from tallyjudge.core.results import MetricResult
     from tallyjudge.interfaces.metrics import MetricBase, MetricSpec
 
@@ -178,7 +180,7 @@ def test_equal_argument_digests_prove_controls_in_redacted_archives():
 
     def archived(func):
         run = experiment(func).run(data, metrics=[metric])
-        return RunResult.from_dict(run.to_dict(include_inputs=False))
+        return _archived(run, keep_inputs=False, legacy=True)
 
     left = archived(lambda row: {"response": row["reference"]})
     right = archived(
@@ -194,3 +196,154 @@ def test_equal_argument_digests_prove_controls_in_redacted_archives():
     assert compare_experiments(left, different).rows[0].metrics[
         metric.spec.id
     ].changes == ("control_input_unverified",)
+
+
+def _archived(run, *, keep_inputs=False, legacy=False):
+    data = run.to_dict(include_inputs=keep_inputs)
+    if legacy:
+        for row in data["rows"]:
+            for score in row["metrics"].values():
+                score.pop("input_sha256_by_name", None)
+    return RunResult.from_dict(data)
+
+
+@pytest.mark.parametrize("source", ["dataset", "experiment"])
+@pytest.mark.parametrize("keep_inputs", [True, False])
+def test_pairing_protects_ordered_rules_in_the_effective_inputs(source, keep_inputs):
+    @numeric_metric("metric.test.ordered_rules", revision="1")
+    def grade(response: str, rules: dict[str, int]) -> float:
+        return float(next(iter(rules.values())))
+
+    binding = MetricBinding(grade(), input_map={"rules": "grading_rules"})
+
+    def trial(rules):
+        row = {"case_id": "a"}
+        output = {"response": "fixed"}
+        (row if source == "dataset" else output)["grading_rules"] = rules
+        run = experiment(lambda _: output).run(
+            Dataset.from_records([row]), metrics=[binding]
+        )
+        if source == "dataset" and not keep_inputs:
+            assert "private rubric" not in run.to_json(include_inputs=False)
+        return _archived(run, keep_inputs=keep_inputs)
+
+    left = trial({"private rubric": 1, "other": 5})
+    right = trial({"other": 5, "private rubric": 1})
+    pair = compare_experiments(left, right)
+    assert pair.rows[0].metrics[binding.key].changes == ("control_input_changed",)
+    assert pair.metrics[binding.key].paired == 0
+    assert pair.metrics[binding.key].mean_delta is None
+
+
+def test_pairing_checks_scored_defaults_and_allows_an_explicit_override():
+    def scaler(default):
+        @numeric_metric("metric.test.paired_scale", revision="1")
+        def grade(response: str, scale: float = default) -> float:
+            return len(response) * scale
+
+        return grade()
+
+    key = "metric.test.paired_scale"
+    dataset = Dataset.from_records(
+        [{"case_id": "default"}, {"case_id": "override", "scale": 3.0}]
+    )
+    left, right = [
+        _archived(
+            experiment(lambda _: {"response": reply}).run(
+                dataset, metrics=[scaler(scale)]
+            )
+        )
+        for scale, reply in [(1.0, "a"), (2.0, "ab")]
+    ]
+    pair = compare_experiments(left, right)
+    assert pair.rows[0].metrics[key].changes == ("control_input_changed",)
+    assert pair.rows[1].metrics[key].delta == 3.0
+    assert (pair.metrics[key].paired, pair.metrics[key].wins) == (1, 1)
+
+
+def test_mixed_archive_only_pairs_recoverable_legacy_arguments():
+    from typing import Annotated
+
+    from pydantic import AfterValidator
+
+    @numeric_metric("metric.test.normalized", revision="1")
+    def grade(response: str, rules: Annotated[str, AfterValidator(str.strip)]) -> float:
+        return float(response == rules)
+
+    metric = grade()
+    rows = Dataset.from_records(
+        [{"case_id": "exact", "rules": "A"}, {"case_id": "normalized", "rules": " A "}]
+    )
+    baseline = experiment(lambda _: {"response": "B"}).run(rows, metrics=[metric])
+    candidate = _archived(
+        experiment(lambda _: {"response": "A"}).run(rows, metrics=[metric])
+    )
+    pair = compare_experiments(
+        _archived(baseline, keep_inputs=True, legacy=True), candidate
+    )
+    assert pair.rows[0].metrics[metric.spec.id].delta == 1.0
+    assert pair.rows[1].metrics[metric.spec.id].changes == ("control_input_unverified",)
+    assert pair.metrics[metric.spec.id].paired == 1
+
+    neither_original_nor_fields = _archived(baseline, legacy=True)
+    assert (
+        compare_experiments(neither_original_nor_fields, candidate)
+        .metrics[metric.spec.id]
+        .paired
+        == 0
+    )
+
+
+@pytest.mark.parametrize("reverse", [True, False])
+def test_one_retained_original_can_only_reconstruct_matching_old_controls(reverse):
+    @numeric_metric("metric.test.legacy_rules", revision="1")
+    def grade(response: str, rules: dict[str, int]) -> float:
+        return float(next(iter(rules.values())) + len(response))
+
+    metric = grade()
+
+    def trial(rules, response, *, keep_inputs):
+        data = Dataset.from_records([{"case_id": "a", "rules": rules}])
+        run = experiment(lambda _: {"response": response}).run(data, metrics=[metric])
+        return _archived(run, keep_inputs=keep_inputs, legacy=True)
+
+    rules = {"a": 1, "b": 5}
+    left = trial(rules, "a", keep_inputs=False)
+    right_rules = dict(reversed(rules.items())) if reverse else rules
+    right = trial(right_rules, "ab", keep_inputs=True)
+    pair = compare_experiments(left, right)
+    expected = ("control_input_unverified",) if reverse else ()
+    assert pair.rows[0].metrics[metric.spec.id].changes == expected
+    assert pair.metrics[metric.spec.id].mean_delta == (None if reverse else 1.0)
+
+
+def test_experiment_hashes_stay_out_of_ordinary_and_historical_exports():
+    metric = create_metric("metric.text.exact_match")
+    dataset = Dataset.from_records([{"case_id": 1, "response": "a", "reference": "a"}])
+    plain = Evaluator([metric]).run(dataset)
+    run = experiment(lambda _: {}).run(dataset, metrics=[metric])
+    key = metric.spec.id
+    assert "input_sha256_by_name" not in plain.to_dict()["rows"][0]["metrics"][key]
+    data = run.to_dict()
+    assert set(data["rows"][0]["metrics"][key]["input_sha256_by_name"]) == {
+        "response",
+        "reference",
+    }
+    for version in (1, 2):
+        data["schema_version"] = version
+        old = RunResult.from_dict(data)
+        assert "input_sha256_by_name" not in old.to_dict()["rows"][0]["metrics"][key]
+
+
+def test_pair_mean_preserves_large_finite_deltas():
+    @numeric_metric("metric.test.large", revision="1")
+    def magnitude(response: float) -> float:
+        return response
+
+    dataset = Dataset.from_records([{"case_id": "a"}, {"case_id": "b"}])
+    left, right = [
+        experiment(lambda _: {"response": value}).run(dataset, metrics=[magnitude()])
+        for value in (0.0, 1e308)
+    ]
+    paired = compare_experiments(left, right).metrics[magnitude.spec.id]
+    assert paired.wins == 2 and paired.mean_delta == 1e308

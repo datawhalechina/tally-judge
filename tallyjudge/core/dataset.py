@@ -37,6 +37,20 @@ def canonical_json(value: Any) -> str:
     return encode_json(value, sort_keys=True)
 
 
+def json_sha256(value: Any, *, sort_keys: bool) -> str | None:
+    """Hash a JSON value; custom metric validators can return non-JSON arguments."""
+    try:
+        encoded = encode_json(value, sort_keys=sort_keys).encode("utf-8")
+    except (TypeError, ValueError):
+        return None
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def arguments_sha256(inputs: Mapping[str, Any]) -> str | None:
+    """Ignore keyword argument order while preserving the order of nested rubrics."""
+    return json_sha256(dict(sorted(inputs.items())), sort_keys=False)
+
+
 @dataclass(frozen=True)
 class Dataset:
     """Immutable records. Accessors return detached copies, never internal data."""
@@ -86,16 +100,20 @@ class Dataset:
 
     @property
     def manifest(self) -> list[dict[str, Any]]:
+        return self._manifest_for(map(json.loads, self._records))
+
+    def _manifest_for(self, records: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Build row identities from the same decoded inputs used by a run."""
         return [
             {
                 "case_id": case_id,
                 "input_index": index,
                 "id_source": self.id_source,
                 "sha256": hashlib.sha256(
-                    canonical_json(json.loads(record)).encode("utf-8")
+                    canonical_json(record).encode("utf-8")
                 ).hexdigest(),
             }
             for index, (case_id, record) in enumerate(
-                zip(self._ids, self._records, strict=True)
+                zip(self._ids, records, strict=True)
             )
         ]

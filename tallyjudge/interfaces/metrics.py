@@ -4,6 +4,7 @@ import json
 import math
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable, Mapping
+from copy import deepcopy
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Annotated, Any, Literal, Protocol, get_origin
@@ -263,14 +264,18 @@ class MetricBinding:
             metadata["ranking_length"] = spec.ranking_length
         return metadata
 
-    def inputs_for(self, row: Mapping[str, Any]) -> dict[str, Any]:
-        """Select and strictly validate the parameters used for scoring and caching."""
+    def inputs_for(
+        self, row: Mapping[str, Any], *, shared_row: bool = False
+    ) -> dict[str, Any]:
+        """Select and validate the bound columns, detaching them from shared run data."""
         inputs = {
             name: row[column]
             for name, column in self.input_map.items()
             if column in row
         }
-        return validate_inputs(self.metric.spec, inputs)
+        return validate_inputs(
+            self.metric.spec, deepcopy(inputs) if shared_row else inputs
+        )
 
     async def ascore_row(self, row: Mapping[str, Any]) -> MetricResult:
         """Score the bound columns of one input row."""

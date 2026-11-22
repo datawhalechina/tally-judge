@@ -2,9 +2,10 @@
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from statistics import mean
 from typing import Any
 
-from tallyjudge.core.dataset import canonical_json
+from tallyjudge.core.dataset import arguments_sha256, canonical_json, json_sha256
 from tallyjudge.core.results import (
     RowResult,
     RowTaskResult,
@@ -44,20 +45,37 @@ class RunComparison:
     warnings: tuple[str, ...]
 
 
-def _experiment_inputs(
-    row: RowResult, columns: Iterable[str], original: dict[str, Any]
-) -> dict[str, Any]:
-    output = row.task.output if row.task and row.task.output else {}
-    return {
-        key: output[key] if key in output else original[key]
-        for key in columns
-        if key in output or key in original
-    }
-
-
 def _same(a: Any, b: Any) -> bool:
     """Compare saved settings as JSON, so True and 1 or 1 and 1.0 stay distinct."""
     return canonical_json(a) == canonical_json(b)
+
+
+def _argument_hashes(
+    row: RowResult,
+    key: str,
+    input_map: dict[str, str],
+    original: dict[str, Any] | None,
+) -> dict[str, str | None]:
+    """Recover old per-argument identities only when the actual scorer digest confirms them."""
+    score = row.metrics[key]
+    if score.input_sha256_by_name is not None:
+        return score.input_sha256_by_name
+    if score.inputs_sha256 is None:
+        return {}
+    source = original or {}
+    output = row.task.output if row.task and row.task.output else {}
+    arguments = {
+        name: output[column] if column in output else source[column]
+        for name, column in input_map.items()
+        if column in output or column in source
+    }
+    # Raw columns may omit a default or precede a custom validator. The whole
+    # digest also verifies any original borrowed from the other side of a redacted run.
+    if arguments_sha256(arguments) != score.inputs_sha256:
+        return {}
+    return {
+        name: json_sha256(value, sort_keys=False) for name, value in arguments.items()
+    }
 
 
 def _experiment_input_change(
@@ -66,59 +84,48 @@ def _experiment_input_change(
     lrow: RowResult,
     rrow: RowResult,
     key: str,
-    a: ScoreResult | None,
-    b: ScoreResult | None,
+    outputs: frozenset[str] | None,
 ) -> str | None:
-    """Decide whether an experiment changed the arguments a binding scored.
-
-    Recorded argument digests are authoritative. Older archives fall back to
-    rebuilding the scored columns from saved inputs; without either, the change
-    cannot be ruled out and no delta is reported.
-    """
-    if a is not None and b is not None and a.inputs_sha256 and b.inputs_sha256:
-        return (
-            None if a.inputs_sha256 == b.inputs_sha256 else "experiment_input_changed"
-        )
-    if left.inputs is None and right.inputs is None:
-        return "experiment_input_unverified"
-    original = (
-        left.inputs[lrow.input_index]
-        if left.inputs is not None
-        else right.inputs[rrow.input_index]  # type: ignore[index]
-    )
-    columns = left.metrics[key]["input_map"].values()
-    if _same(
-        _experiment_inputs(lrow, columns, original),
-        _experiment_inputs(rrow, columns, original),
-    ):
+    """Compare all scored arguments, or the controls retained across business outputs."""
+    a, b = lrow.metrics[key], rrow.metrics[key]
+    if a.inputs_sha256 is not None and b.inputs_sha256 is not None:
+        if a.inputs_sha256 == b.inputs_sha256:
+            return None
+        if outputs is None:
+            return "experiment_input_changed"
+    input_map = left.metrics[key]["input_map"]
+    controls = [
+        name
+        for name, column in input_map.items()
+        if outputs is None
+        or column not in outputs
+        or name in ("user_input", "reference")
+        or name.startswith("reference_")
+    ]
+    if not controls:
         return None
-    return "experiment_input_changed"
+    linput = left.inputs[lrow.input_index] if left.inputs is not None else None
+    rinput = right.inputs[rrow.input_index] if right.inputs is not None else None
+    before = _argument_hashes(
+        lrow, key, input_map, linput if linput is not None else rinput
+    )
+    after = _argument_hashes(
+        rrow, key, input_map, rinput if rinput is not None else linput
+    )
+    kind = "experiment_input" if outputs is None else "control_input"
+    unknown = False
+    for name in controls:
+        lvalue, rvalue = before.get(name), after.get(name)
+        if lvalue is None or rvalue is None:
+            unknown = True
+        elif lvalue != rvalue:
+            return f"{kind}_changed"
+    return f"{kind}_unverified" if unknown else None
 
 
 def compare_runs(left: RunResult, right: RunResult) -> RunComparison:
     """Compare right minus left for successful numeric scores with the same inputs and settings."""
     return _compare(left, right, None)
-
-
-def _control_change(
-    left: RowResult,
-    right: RowResult,
-    columns: Iterable[str],
-    original: dict[str, Any] | None,
-) -> str | None:
-    a = left.task.output if left.task and left.task.output else {}
-    b = right.task.output if right.task and right.task.output else {}
-    for name in columns:
-        if name not in a and name not in b:
-            continue
-        if original is None and ((name in a) != (name in b)):
-            return "control_input_unverified"
-        if not _same(
-            _experiment_inputs(left, [name], original or {}),
-            _experiment_inputs(right, [name], original or {}),
-        ):
-            return "control_input_changed"
-    return None
 
 
 def _compare(
@@ -193,30 +200,7 @@ def _compare(
             b = rrow.metrics.get(key) if rrow else None
             settings = binding_changes[key]
             if not (changes or settings) and lrow and rrow and (lrow.task or rrow.task):
-                if outputs is None:
-                    change = _experiment_input_change(
-                        left, right, lrow, rrow, key, a, b
-                    )
-                elif a and b and a.inputs_sha256 and a.inputs_sha256 == b.inputs_sha256:
-                    change = None
-                else:
-                    controls = {
-                        column
-                        for name, column in left.metrics[key]["input_map"].items()
-                        if column not in outputs
-                        or name in ("user_input", "reference")
-                        or name.startswith("reference_")
-                    }
-                    original = (
-                        left.inputs[lrow.input_index]
-                        if left.inputs is not None
-                        else (
-                            right.inputs[rrow.input_index]
-                            if right.inputs is not None
-                            else None
-                        )
-                    )
-                    change = _control_change(lrow, rrow, controls, original)
+                change = _experiment_input_change(left, right, lrow, rrow, key, outputs)
                 if change is not None:
                     settings += (change,)
             elif (
@@ -316,7 +300,7 @@ def compare_experiments(
             sum(sign * d > 0 for d in deltas),
             deltas.count(0),
             sum(sign * d < 0 for d in deltas),
-            sum(deltas) / len(deltas) if deltas else None,
+            mean(deltas) if deltas else None,
         )
     return ExperimentComparison(
         rows, summaries, left.metadata, right.metadata, left.usage, right.usage

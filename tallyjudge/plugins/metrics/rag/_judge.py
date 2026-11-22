@@ -1,4 +1,4 @@
-"""Model request scope shared by the single-turn RAG diagnostic judges."""
+"""Model request scope shared by single-turn RAG judges."""
 
 from abc import abstractmethod
 from typing import TYPE_CHECKING, Annotated, Any
@@ -32,7 +32,7 @@ def binary_verdict(value: int) -> int:
 
 
 class RagJudge(MetricBase):
-    """Run one diagnostic in a shared cancellation and request-usage scope."""
+    """Run one score in a shared cancellation and request-usage scope."""
 
     def __init__(self, llm: LanguageModel):
         self.llm = llm

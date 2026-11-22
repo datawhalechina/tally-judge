@@ -281,7 +281,7 @@ async def test_fifteen_metrics_on_one_dataset_export_scores_failures_and_usage(
         assert saved.summary[key]["coverage"] == pytest.approx(2 / 3)
         assert saved.metrics[key]["config_snapshot"]["prompt_revision"] == "1"
         assert saved.metrics[key]["revision"] == (
-            "2"
+            "3"
             if name in {"answer_accuracy", "context_relevance", "response_groundedness"}
             else "1"
         )

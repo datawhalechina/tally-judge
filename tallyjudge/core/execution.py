@@ -117,7 +117,8 @@ class TaskRunner:
         cache: ScoreCache | None = None,
     ) -> RunResult:
         metadata = {binding.key: binding.snapshot() for binding in bindings}
-        manifest = dataset.manifest
+        records = dataset.records
+        manifest = dataset._manifest_for(records)
         result = RunResult(
             str(uuid4()),
             manifest,
@@ -132,7 +133,7 @@ class TaskRunner:
                 )
                 for item in manifest
             ],
-            dataset.records,
+            records,
             metadata=experiment_metadata,
         )
         collector._start(result)
@@ -167,14 +168,15 @@ class TaskRunner:
                 deadline = (
                     None if config.timeout is None else loop.time() + config.timeout
                 )
-                record = dataset.record(row.input_index)
+                record = records[row.input_index]
                 if isinstance(step, MetricBinding):
                     if row.task is not None and row.task.output is not None:
-                        record.update(copy.deepcopy(row.task.output))
+                        record = record | row.task.output
                     job = MetricJob(
                         row, deadline, events, step, metadata[step.key], cache
                     )
                 else:
+                    record = copy.deepcopy(record)
                     job = ExperimentJob(row, deadline, events, step)
                 with job.usage.activate():
                     task = asyncio.create_task(job.run(record))

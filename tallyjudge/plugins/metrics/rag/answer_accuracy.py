@@ -124,7 +124,7 @@ class AnswerAccuracyMetric(DualJudge):
     grades = (0, 2, 4)
     spec = MetricSpec(
         "metric.rag.answer_accuracy",
-        "2",
+        "3",
         required_text_inputs("user_input", "response", "reference"),
         value_range=(0.0, 1.0),
     )

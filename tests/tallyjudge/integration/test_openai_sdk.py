@@ -13,7 +13,7 @@ from tallyjudge import (
     create_language_model,
     create_metric,
 )
-from tallyjudge.core.errors import ClientLoopError, ModelError
+from tallyjudge.core.errors import ClientLoopError, ModelError, PluginError
 from tallyjudge.core.prompts import PromptInput
 
 httpx = pytest.importorskip("httpx")
@@ -52,6 +52,24 @@ def completion(content):
             "usage": {"prompt_tokens": 3, "completion_tokens": 1, "total_tokens": 4},
         },
     )
+
+
+@pytest.mark.parametrize(
+    ("factory", "plugin_id"),
+    [(create_language_model, CHAT), (create_embedding_model, EMBED)],
+)
+def test_sync_sdk_client_is_rejected_before_scoring(factory, plugin_id):
+    def handler(request):
+        pytest.fail("A synchronous client must not send an HTTP request")
+
+    with openai.OpenAI(
+        api_key="test-secret",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    ) as client:
+        with pytest.raises(PluginError, match=plugin_id) as rejected:
+            factory(plugin_id, client=client, model="judge")
+    assert isinstance(rejected.value.__cause__, TypeError)
+    assert "AsyncOpenAI" in str(rejected.value.__cause__)
 
 
 @pytest.mark.asyncio

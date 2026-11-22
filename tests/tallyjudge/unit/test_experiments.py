@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 import pytest
 
@@ -22,6 +23,55 @@ from tallyjudge import (
 from tallyjudge.registry import PluginRegistry, PluginSpec
 
 EXACT = "metric.text.exact_match"
+
+
+@pytest.mark.parametrize("as_experiment", [False, True])
+def test_bindings_share_one_row_decode_but_own_their_inputs(monkeypatch, as_experiment):
+    dataset = Dataset.from_records(
+        [
+            {"case_id": i, "words": {"items": ["base"]}, "unused": "x" * 5000}
+            for i in range(2)
+        ]
+    )
+    rows_read = []
+    decode = json.loads
+
+    def counted(data, *args, **kwargs):
+        value = decode(data, *args, **kwargs)
+        if isinstance(value, dict) and "unused" in value:
+            rows_read.append(value["case_id"])
+        return value
+
+    monkeypatch.setattr(json, "loads", counted)
+
+    @numeric_metric("metric.test.append", revision="1")
+    def append(payload: dict) -> float:
+        payload["items"].append("metric")
+        return float(len(payload["items"]))
+
+    bindings = [
+        MetricBinding(append(), key=key, input_map={"payload": "words"})
+        for key in ("first", "second", "third")
+    ]
+    if as_experiment:
+
+        @experiment
+        def generate(row):
+            row["words"]["items"].append("experiment")
+            return {"words": row["words"]}
+
+        result = generate.run(dataset, metrics=bindings)
+    else:
+        result = Evaluator(bindings).run(dataset)
+
+    assert rows_read == [0, 1]
+    for row in result.rows:
+        assert result.input_for(row.case_id)["words"]["items"] == ["base"]
+        if as_experiment:
+            assert row.task.output["words"]["items"] == ["base", "experiment"]
+        assert all(
+            s.value == (3.0 if as_experiment else 2.0) for s in row.metrics.values()
+        )
 
 
 @pytest.mark.asyncio

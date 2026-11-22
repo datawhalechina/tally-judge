@@ -3,6 +3,7 @@
 import asyncio
 import json
 import re
+import threading
 from collections import Counter
 from functools import partial
 from itertools import combinations
@@ -97,6 +98,53 @@ async def test_public_mixed_budget(client, count, connected, size, share, expect
 def test_mixed_rejects_invalid_share_before_generation(client, share):
     with pytest.raises(PluginError, match=MIXED):
         create_synthesizer(MIXED, llm=judge(client), multi_hop_fraction=share)
+    assert not client.calls
+
+
+@pytest.mark.asyncio
+async def test_mixed_snapshots_streamed_rows_before_the_iterator_reuses_them(client):
+    def stream():
+        row = {}
+        for item in passages(2):
+            row.update(item)
+            yield row
+
+    plugin = create_synthesizer(MIXED, llm=judge(client), multi_hop_fraction=0.0)
+    queue_questions(client, 2)
+    result = await plugin.arun(stream(), testset_size=2)
+    assert sorted(
+        record["reference_context_ids"] for record in result.to_records()
+    ) == [
+        ["0"],
+        ["1"],
+    ]
+
+
+@pytest.mark.asyncio
+async def test_mixed_can_be_cancelled_while_matching_source_entities(
+    client, monkeypatch
+):
+    from tallyjudge.plugins.synthesis import graph
+
+    loop = asyncio.get_running_loop()
+    started = asyncio.Event()
+    release = threading.Event()
+
+    def slow_overlaps(rows):
+        loop.call_soon_threadsafe(started.set)
+        release.wait(timeout=2)
+        return []
+
+    monkeypatch.setattr(graph, "entity_overlaps", slow_overlaps)
+    plugin = create_synthesizer(MIXED, llm=judge(client), multi_hop_fraction=1.0)
+    task = asyncio.create_task(plugin.arun(passages(2), testset_size=1))
+    try:
+        await asyncio.wait_for(started.wait(), 3)
+        task.cancel("stop")
+        with pytest.raises(asyncio.CancelledError, match="stop"):
+            await task
+    finally:
+        release.set()
     assert not client.calls
 
 

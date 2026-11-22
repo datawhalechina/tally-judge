@@ -8,17 +8,24 @@ from tallyjudge.interfaces.models import EmbeddingModel
 from tallyjudge.plugins._vectors import unit_vector
 
 
+async def embedding_vectors(
+    embeddings: EmbeddingModel, texts: list[str]
+) -> list[list[float]]:
+    """Request one batch of vectors within the current score's usage scope."""
+    mark_usage_source("embedding", embeddings.plugin_id, embeddings.usage_tracking)
+    return (await embeddings.aembed_texts(texts)).vectors
+
+
 async def embedding_cosine(
     embeddings: EmbeddingModel, first: str, second: str
 ) -> float:
     """Embed each text separately in caller order and return its signed cosine."""
     vectors = []
     for text in (first, second):
-        mark_usage_source("embedding", embeddings.plugin_id, embeddings.usage_tracking)
-        result = await embeddings.aembed_texts([text])
-        if len(result.vectors) != 1:
+        batch = await embedding_vectors(embeddings, [text])
+        if len(batch) != 1:
             raise ModelOutputError("invalid_embedding")
-        vectors.append(result.vectors[0])
+        vectors.append(batch[0])
     left, right = vectors
     if len(left) != len(right):
         raise ModelOutputError("invalid_embedding")
