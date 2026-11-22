@@ -14,11 +14,12 @@ from tallyjudge.core.usage import ScoreUsage, UsageScope, UsageSummary
 
 @dataclass(frozen=True)
 class SourceDocument:
-    """A document with a caller-owned stable ID, source text and optional entity labels."""
+    """Source text with a stable document ID, optional entity labels and page locator."""
 
     document_id: str
     text: str
     entities: tuple[str, ...] = ()
+    page: int | str | None = None
 
 
 @dataclass
@@ -45,6 +46,8 @@ class SynthesisResult:
     testset_size: int
     candidates: list[SynthesisCandidate] = field(default_factory=list)
 
+    planning_usage: ScoreUsage | None = None
+
     @property
     def attempted_count(self) -> int:
         """Count candidates that started, including a currently running candidate."""
@@ -59,6 +62,8 @@ class SynthesisResult:
     def usage(self) -> ScoreUsage:
         """Sum observed requests, tokens and untracked sources across all attempts."""
         usage = [c.usage for c in self.candidates if c.usage is not None]
+        if self.planning_usage is not None:
+            usage.append(self.planning_usage)
         return ScoreUsage.aggregate(usage) or ScoreUsage(
             UsageSummary(), UsageSummary(), []
         )
@@ -81,6 +86,7 @@ class SynthesisCollector:
         self._result: SynthesisResult | None = None
         self._active = False
         self._scope: UsageScope | None = None
+        self._planning_scope: UsageScope | None = None
 
     @contextmanager
     def collect(self, result: SynthesisResult) -> Iterator[None]:
@@ -93,6 +99,19 @@ class SynthesisCollector:
             yield
         finally:
             self._active = False
+
+    @contextmanager
+    def plan(self) -> Iterator[None]:
+        """Capture graph preparation and scenario-selection requests before candidates exist."""
+        if self._result is None or not self._active:
+            raise RuntimeError("Start collecting a synthesis run before planning")
+        scope = self._planning_scope = UsageScope()
+        try:
+            with scope.activate():
+                yield
+        finally:
+            self._result.planning_usage = scope.seal()
+            self._planning_scope = None
 
     @contextmanager
     def attempt(self, candidate: SynthesisCandidate) -> Iterator[None]:
@@ -122,6 +141,8 @@ class SynthesisCollector:
         if self._result is None:
             raise RuntimeError("No synthesis run has been accepted by this collector")
         result = copy.deepcopy(self._result)
+        if self._planning_scope is not None:
+            result.planning_usage = self._planning_scope.snapshot()
         if self._scope is not None:
             result.candidates[-1].usage = self._scope.snapshot()
         return result
@@ -144,7 +165,7 @@ class Synthesizer(Protocol):
         testset_size: int,
         collector: SynthesisCollector | None = None,
     ) -> SynthesisResult:
-        """Generate up to the requested size, propagating external cancellation."""
+        """Generate using the selected policy’s quotas and propagate external cancellation."""
         ...
 
     def run(

@@ -22,7 +22,9 @@ def test_lazy_list_describe_and_construct_in_fresh_process():
     code = """
 import sys
 from tallyjudge.registry import registry
-assert {spec.id for spec in registry.list(kind='synthesis')} == {'synthesis.testset.single_hop', 'synthesis.testset.multi_hop'}
+assert {spec.id for spec in registry.list(kind='synthesis')} == {
+    'synthesis.testset.single_hop', 'synthesis.testset.multi_hop', 'synthesis.testset.mixed', 'synthesis.testset.rag',
+}
 assert {spec.id for spec in registry.list(kind='storage')} == {'storage.local.memory', 'storage.local.jsonl'}
 assert {spec.id for spec in registry.list(kind='cache')} == {'cache.local.sqlite'}
 assert {spec.id for spec in registry.list(kind='event')} == {'event.local.jsonl', 'event.mlflow.tracking'}

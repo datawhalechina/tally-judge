@@ -116,6 +116,8 @@ BUILTINS = (
         "metric",
         1,
         "tallyjudge.plugins.metrics.rag.answer_accuracy:AnswerAccuracyMetric",
+        config_type="tallyjudge.plugins.metrics.rag._dual_judge:DualJudgeConfig",
+        factory_validates_config=True,
         dependencies={"llm": "language_model"},
     ),
     PluginSpec(
@@ -123,6 +125,8 @@ BUILTINS = (
         "metric",
         1,
         "tallyjudge.plugins.metrics.rag.context_relevance:ContextRelevanceMetric",
+        config_type="tallyjudge.plugins.metrics.rag._dual_judge:DualJudgeConfig",
+        factory_validates_config=True,
         dependencies={"llm": "language_model"},
     ),
     PluginSpec(
@@ -130,6 +134,8 @@ BUILTINS = (
         "metric",
         1,
         "tallyjudge.plugins.metrics.rag.response_groundedness:ResponseGroundednessMetric",
+        config_type="tallyjudge.plugins.metrics.rag._dual_judge:DualJudgeConfig",
+        factory_validates_config=True,
         dependencies={"llm": "language_model"},
     ),
     PluginSpec(
@@ -250,6 +256,25 @@ BUILTINS = (
         "tallyjudge.plugins.embeddings.openai_compatible:OpenAICompatibleEmbeddingModel",
         config_type="tallyjudge.plugins.embeddings.openai_compatible:EmbeddingConfig",
         dependencies={"client": "client"},
+    ),
+    PluginSpec(
+        "synthesis.testset.rag",
+        "synthesis",
+        1,
+        "tallyjudge.plugins.synthesis.rag:RagTestsetSynthesizer",
+        config_type="tallyjudge.plugins.synthesis.rag:RagTestsetConfig",
+        dependencies={"llm": "language_model"},
+        optional_dependencies={"embeddings": "embedding_model"},
+        factory_validates_config=True,
+    ),
+    PluginSpec(
+        "synthesis.testset.mixed",
+        "synthesis",
+        1,
+        "tallyjudge.plugins.synthesis.mixed:MixedHopSynthesizer",
+        config_type="tallyjudge.plugins.synthesis.mixed:MixedConfig",
+        dependencies={"llm": "language_model"},
+        factory_validates_config=True,
     ),
     PluginSpec(
         "synthesis.testset.multi_hop",

@@ -9,6 +9,8 @@ from pydantic import BaseModel
 
 from tallyjudge import (
     Dataset,
+    Evaluator,
+    MetricBinding,
     SynthesisCollector,
     create_language_model,
     create_metric,
@@ -21,8 +23,8 @@ from tallyjudge.core.prompts import PromptInput
 KEY = "synthesis.testset.single_hop"
 HOURS = {"document_id": "library", "chunk_id": "hours", "text": "图书馆周一闭馆。"}
 LOANS = {"document_id": "service", "chunk_id": "loans", "text": "图书借期为14天。"}
-QA_HOURS = {"user_input": "图书馆哪天闭馆？", "reference": "周一"}
-QA_LOANS = {"user_input": "图书借期多长？", "reference": "14天"}
+QA_HOURS = {"query": "图书馆哪天闭馆？", "answer": "周一"}
+QA_LOANS = {"query": "图书借期多长？", "answer": "14天"}
 TOKENS = SimpleNamespace(prompt_tokens=7, completion_tokens=3)
 
 
@@ -39,6 +41,45 @@ def synthesizer(client, *, retries=0, seed=7):
 
 def reply(client, pair, tokens=TOKENS):
     client.chat_reply(json.dumps(pair, ensure_ascii=False), tokens=tokens)
+
+
+@pytest.mark.asyncio
+async def test_review_a_synthetic_reference_against_its_own_evidence(client):
+    llm = create_language_model(
+        "model.openai_compatible.chat_completions",
+        client=client,
+        model="fixture",
+        temperature=0.0,
+    )
+    client.chat_reply(json.dumps({"query": "Where is Kit?", "answer": "Paris"}))
+    generated = await create_synthesizer(KEY, llm=llm).arun(
+        [{"document_id": "guide", "chunk_id": "place", "text": "Kit is kept in Rome."}],
+        testset_size=1,
+    )
+    assert generated.generated_count == generated.usage.generation.requests == 1
+
+    binding = MetricBinding(
+        create_metric("metric.rag.faithfulness", llm=llm),
+        input_map={"response": "reference", "retrieved_contexts": "reference_contexts"},
+    )
+    client.chat_reply('{"statements":["Kit is kept in Paris."]}')
+    client.chat_reply(
+        json.dumps(
+            {
+                "statements": [
+                    {
+                        "statement": "Kit is kept in Paris.",
+                        "reason": "The passage says Rome.",
+                        "verdict": 0,
+                    }
+                ]
+            }
+        )
+    )
+    review = await Evaluator([binding]).arun(generated.to_dataset())
+    score = review.row_for(generated.candidates[0].case_id).metrics[binding.key]
+    assert score.value == 0.0 and score.usage.generation.requests == 2
+    assert len(client.calls) == 3
 
 
 @pytest.mark.asyncio
@@ -59,7 +100,14 @@ async def test_generated_jsonl_feeds_two_experiments(client, tmp_path):
         "output_tokens": 6,
     }
     assert result.usage.generation.complete and result.usage.embedding.requests == 0
-    assert [call[1]["messages"][-1]["content"] for call in client.calls] == [
+    assert [
+        json.loads(
+            call[1]["messages"][0]["content"]
+            .rsplit("input: ", 1)[1]
+            .removesuffix("\nOutput: ")
+        )["context"]
+        for call in client.calls
+    ] == [
         HOURS["text"],
         LOANS["text"],
     ]
@@ -118,10 +166,10 @@ async def test_generated_jsonl_feeds_two_experiments(client, tmp_path):
     [
         ("not JSON", "invalid_json"),
         (
-            json.dumps(dict(QA_LOANS, reference_context_ids=["fabricated"])),
+            json.dumps({"query": "missing answer"}),
             "schema_validation",
         ),
-        (json.dumps(dict(QA_LOANS, reference="  ")), "schema_validation"),
+        (json.dumps(dict(QA_LOANS, answer=42)), "schema_validation"),
     ],
 )
 def test_invalid_second_output_records_source_without_replacement(client, bad, code):
@@ -144,7 +192,7 @@ def test_invalid_second_output_records_source_without_replacement(client, bad, c
     assert (
         result.usage.generation.requests == 2 and not result.usage.generation.complete
     )
-    assert result.to_dataset().records[0]["reference"] == QA_HOURS["reference"]
+    assert result.to_dataset().records[0]["reference"] == QA_HOURS["answer"]
     assert len(result.to_dataset()) == 1
 
 
@@ -374,3 +422,33 @@ async def test_broken_model_aborts_and_snapshot_has_a_terminal_state(
 async def test_sync_entry_inside_loop_points_to_arun(client):
     with pytest.raises(RuntimeError, match="arun"):
         synthesizer(client).run([], testset_size=0)
+
+
+@pytest.mark.asyncio
+async def test_sample_id_tracks_the_source_and_the_term_in_the_prompt(client):
+    model = create_language_model(
+        "model.openai_compatible.chat_completions", client=client, model="fixture"
+    )
+    generator = create_synthesizer("synthesis.testset.single_hop", llm=model)
+    ids = []
+    for text, labels in [
+        ("Ada built Kit.", ["Ada"]),
+        ("Ada built Kit.", ["Ada", "Kit"]),
+        ("Ada built Kit.", ["Kit"]),
+        ("Ada sold Kit.", ["Kit"]),
+    ]:
+        client.chat_reply('{"query":"Who?","answer":"Ada"}')
+        result = await generator.arun(
+            [
+                {
+                    "chunk_id": "a",
+                    "document_id": "guide",
+                    "text": text,
+                    "entities": labels,
+                }
+            ],
+            testset_size=1,
+        )
+        ids.append(result.to_records()[0]["case_id"])
+    assert ids[0] == ids[1]
+    assert len(set(ids)) == 3

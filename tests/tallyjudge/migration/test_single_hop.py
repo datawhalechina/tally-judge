@@ -4,6 +4,7 @@
 The question, reference and original passage retain their archived meanings.
 """
 
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -26,9 +27,15 @@ class PassageJudge:
         question, reference = {
             "图书馆周一闭馆。": ("图书馆哪天闭馆？", "周一"),
             "图书借期为14天。": ("图书借期多长？", "14天"),
-        }[prompt.messages[-1].content]
+        }[
+            json.loads(
+                prompt.messages[0]
+                .content.rsplit("input: ", 1)[1]
+                .removesuffix("\nOutput: ")
+            )["context"]
+        ]
         return SimpleNamespace(
-            data=response_model(user_input=question + self.suffix, reference=reference)
+            data=response_model(query=question + self.suffix, answer=reference)
         )
 
 

@@ -28,6 +28,9 @@ class StructuredPrompt[I: BaseModel, O: BaseModel]:
     instruction: str
     examples: list[tuple[I, O]]
 
+    # Collections and testset render empty example sections with different spacing.
+    _empty_example_prefix = "\n"
+
     def render(self, data: I) -> PromptInput:
         """Render the revisioned instruction, output schema, examples and sample in order."""
         schema = json.dumps(self.output_model.model_json_schema())
@@ -36,11 +39,13 @@ class StructuredPrompt[I: BaseModel, O: BaseModel]:
             for i, (example, output) in enumerate(self.examples, 1)
         )
         if examples:
-            examples = "--------EXAMPLES-----------\n" + examples
+            examples = "\n--------EXAMPLES-----------\n" + examples
+        else:
+            examples = self._empty_example_prefix
         return PromptInput.from_text(
             f"{self.instruction}\n"
             "Please return the output in a JSON format that complies with the following schema as specified in JSON Schema:\n"
-            f"{schema}Do not use single quotes in your response but double quotes,properly escaped with a backslash.\n\n"
+            f"{schema}Do not use single quotes in your response but double quotes,properly escaped with a backslash.\n"
             f"{examples}\n-----------------------------\n\n"
             f"Now perform the same with the following input\ninput: {data.model_dump_json(indent=4, exclude_none=True)}\nOutput: "
         )

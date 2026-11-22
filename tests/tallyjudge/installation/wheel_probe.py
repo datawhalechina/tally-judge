@@ -173,9 +173,11 @@ async def check_single_turn_rag():
 
 
 async def check_synthesis():
+    from tallyjudge.plugins.synthesis.graph import EvidenceGraph, build_entity_graph
+
     client = Client()
     client.outputs = iter(
-        [{"user_input": "When does the library close?", "reference": "Monday"}]
+        [{"query": "When does the library close?", "answer": "Monday"}]
     )
     llm = create_language_model(
         "model.openai_compatible.chat_completions",
@@ -205,6 +207,75 @@ async def check_synthesis():
         row["reference_context_ids"],
         row["reference_document_ids"],
     ) == ("Monday", ["hours"], ["guide"])
+
+    client.outputs = iter([{"entities": ["Kit"]}])
+    graph = await build_entity_graph(
+        [
+            {
+                "chunk_id": "a",
+                "document_id": "x",
+                "text": "Ada built Kit.",
+                "entities": ["Kit"],
+            },
+            {"chunk_id": "b", "document_id": "y", "text": "Kit is in Rome."},
+        ],
+        llm=llm,
+    )
+    assert graph.relations == () and graph.generation_usage.requests == 1
+    # An explicit archived edge is sufficient for mixed sampling in a base install.
+    graph = EvidenceGraph(graph.chunks, [("a", "b")])
+    restored = EvidenceGraph.from_dict(json.loads(json.dumps(graph.to_dict())))
+    client.outputs = iter(
+        [
+            {"query": "Who built Kit?", "answer": "Ada"},
+            {
+                "query": "Where is Ada's creation?",
+                "answer": "Rome",
+            },
+        ]
+    )
+    mixed = create_synthesizer("synthesis.testset.mixed", llm=llm, seed=7)
+    examples = await mixed.arun(restored, testset_size=2)
+    assert [row["synthesizer_id"] for row in examples.to_records()] == [
+        "synthesis.testset.single_hop",
+        "synthesis.testset.multi_hop",
+    ]
+    assert examples.usage.generation.requests == 2
+
+    client.outputs = iter(
+        [
+            {"text": "Ada built Kit."},
+            {"score": 3},
+            {"output": ["Design"]},
+            {"entities": ["Kit"]},
+            {"name": "Reader", "role_description": "Researches Kit"},
+            {"mapping": {"Reader": ["Kit"]}},
+            {"query": "Who built Kit?", "answer": "Ada"},
+        ]
+    )
+    embeddings = create_embedding_model(
+        "embedding.openai_compatible.embeddings", client=client, model="local"
+    )
+    archived = create_synthesizer(
+        "synthesis.testset.rag", llm=llm, embeddings=embeddings
+    )
+    result = await archived.arun(
+        [{"chunk_id": "a", "document_id": "x", "text": "Ada built Kit."}],
+        testset_size=1,
+    )
+    [sample] = result.to_records()
+    assert (
+        sample["reference"],
+        sample["reference_context_ids"],
+        sample["synthesizer_name"],
+    ) == (
+        "Ada",
+        ["a"],
+        "single_hop_specific_query_synthesizer",
+    )
+    assert (
+        result.usage.generation.requests == 7 and result.usage.embedding.requests == 1
+    )
 
 
 def check_distances(installed):

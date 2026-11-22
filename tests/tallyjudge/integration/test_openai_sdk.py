@@ -202,6 +202,7 @@ async def test_multi_hop_request_accepts_plain_evidence_in_json_mode():
         body = json.loads(request.content)
         calls.append(body)
         assert body["response_format"] == {"type": "json_object"}
+        assert "evidence_quotes" not in body["messages"][0]["content"]
         if not any("json" in m["content"].lower() for m in body["messages"]):
             return httpx.Response(
                 400, json={"error": {"message": "JSON instruction required"}}
@@ -209,9 +210,8 @@ async def test_multi_hop_request_accepts_plain_evidence_in_json_mode():
         return completion(
             json.dumps(
                 {
-                    "user_input": "Where does Ada's creation live?",
-                    "reference": "Rome",
-                    "evidence_quotes": ["Ada built Kit", "Kit lives in Rome"],
+                    "query": "Where does Ada's creation live?",
+                    "answer": "Rome",
                 }
             )
         )
