@@ -170,8 +170,6 @@ class TaskRunner:
                 )
                 record = records[row.input_index]
                 if isinstance(step, MetricBinding):
-                    if row.task is not None and row.task.output is not None:
-                        record = record | row.task.output
                     job = MetricJob(
                         row, deadline, events, step, metadata[step.key], cache
                     )

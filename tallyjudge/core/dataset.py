@@ -51,6 +51,14 @@ def arguments_sha256(inputs: Mapping[str, Any]) -> str | None:
     return json_sha256(dict(sorted(inputs.items())), sort_keys=False)
 
 
+def is_rag_control(parameter: str, column: str) -> bool:
+    """A question or reference stays bound to the dataset, including through a column alias."""
+    return any(
+        field in ("user_input", "reference") or field.startswith("reference_")
+        for field in (parameter, column)
+    )
+
+
 @dataclass(frozen=True)
 class Dataset:
     """Immutable records. Accessors return detached copies, never internal data."""

@@ -5,7 +5,12 @@ from dataclasses import dataclass
 from statistics import mean
 from typing import Any
 
-from tallyjudge.core.dataset import arguments_sha256, canonical_json, json_sha256
+from tallyjudge.core.dataset import (
+    arguments_sha256,
+    canonical_json,
+    is_rag_control,
+    json_sha256,
+)
 from tallyjudge.core.results import (
     RowResult,
     RowTaskResult,
@@ -64,6 +69,7 @@ def _argument_hashes(
         return {}
     source = original or {}
     output = row.task.output if row.task and row.task.output else {}
+    # Historical runs without per-field hashes scored the output-first overlay.
     arguments = {
         name: output[column] if column in output else source[column]
         for name, column in input_map.items()
@@ -97,10 +103,7 @@ def _experiment_input_change(
     controls = [
         name
         for name, column in input_map.items()
-        if outputs is None
-        or column not in outputs
-        or name in ("user_input", "reference")
-        or name.startswith("reference_")
+        if outputs is None or column not in outputs or is_rag_control(name, column)
     ]
     if not controls:
         return None

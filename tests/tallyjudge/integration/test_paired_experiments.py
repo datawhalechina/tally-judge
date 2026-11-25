@@ -17,6 +17,7 @@ from tallyjudge import (
     experiment,
     numeric_metric,
 )
+from tallyjudge.core.dataset import arguments_sha256
 
 ROWS = [
     {"case_id": "a", "user_input": "days?", "reference": "14"},
@@ -68,16 +69,19 @@ def test_pairing_uses_source_and_judge_but_allows_business_answer_changes(tmp_pa
         assert ("usage" in old.to_dict()) == (version == 2)
 
 
-def test_incompatible_controls_missing_row_and_failed_row():
+def test_experiment_keeps_dataset_reference_and_reports_missing_and_skipped_rows():
     metric = create_metric("metric.text.exact_match")
     baseline = experiment(lambda row: {"response": row["reference"]})
-    changed = experiment(lambda row: {"reference": "new", "response": "new"})
+    changed = experiment(lambda row: {"reference": "30", "response": "30"})
     a = baseline.run(Dataset.from_records(ROWS), metrics=[metric])
     b = changed.run(Dataset.from_records(ROWS[:1]), metrics=[metric])
+    assert b.rows[0].metrics[metric.spec.id].value == 0.0
+    assert b.input_for("a")["reference"] == "14"
+    assert b.rows[0].task.output["reference"] == "30"
     result = compare_experiments(a, b)
-    assert result.rows[0].metrics[metric.spec.id].changes == ("control_input_changed",)
+    assert result.rows[0].metrics[metric.spec.id].delta == -1.0
     assert result.rows[1].changes == ("row_missing_right",)
-    assert result.metrics[metric.spec.id].paired == 0
+    assert result.metrics[metric.spec.id].paired == 1
     failure = experiment(lambda row: None).run(
         Dataset.from_records(ROWS), metrics=[metric]
     )
@@ -145,7 +149,63 @@ def test_lower_score_counts_as_improvement_and_reference_alias_is_protected():
         data, metrics=[binding]
     )
     result = compare_experiments(left, changed, output_fields=["answer", "response"])
-    assert result.rows[0].metrics[binding.key].changes == ("control_input_changed",)
+    assert changed.rows[0].metrics[binding.key].value == 1.0
+    assert result.rows[0].metrics[binding.key].delta == 0.0
+
+
+@pytest.mark.parametrize(
+    ("column", "gold", "answer"),
+    [
+        ("user_input", "loan?", "hours?"),
+        ("reference_contexts", ["14 days"], ["30 days"]),
+        ("reference_context_ids", ["A"], ["B"]),
+    ],
+)
+def test_question_and_reference_columns_stay_fixed_in_custom_bindings(
+    column, gold, answer
+):
+    @numeric_metric("metric.test.agreement", revision="1")
+    def agreement(label: str | list[str], prediction: str | list[str]) -> float:
+        return float(label == prediction)
+
+    binding = MetricBinding(agreement(), input_map={"label": column})
+    data = Dataset.from_records([{column: gold, "prediction": gold}])
+    run = experiment(lambda _: {column: answer, "prediction": answer}).run(
+        data, metrics=[binding]
+    )
+    assert run.rows[0].metrics[binding.key].value == 0.0
+
+
+def test_experiment_output_cannot_supply_a_missing_required_reference():
+    metric = create_metric("metric.text.exact_match")
+    data = Dataset.from_records([{"case_id": "loan", "user_input": "how long?"}])
+    run = experiment(lambda _: {"response": "30", "reference": "30"}).run(
+        data, metrics=[metric]
+    )
+    score = run.rows[0].metrics[metric.spec.id]
+    assert score.status == "error"
+    assert (score.error.category, score.error.field) == (
+        "validation_error",
+        "reference",
+    )
+
+
+def test_historical_score_using_the_returned_reference_remains_incomparable():
+    metric = create_metric("metric.text.exact_match")
+    output = {"response": "30", "reference": "30"}
+    run = experiment(lambda _: output).run(
+        Dataset.from_records(ROWS[:1]), metrics=[metric]
+    )
+    # A v2 run scored both arguments from the returned output and stored their joint hash.
+    saved = run.to_dict()
+    saved["schema_version"] = 2
+    old_score = saved["rows"][0]["metrics"][metric.spec.id]
+    old_score.update(value=1.0, inputs_sha256=arguments_sha256(output))
+    del old_score["input_sha256_by_name"]
+    legacy = RunResult.from_dict(saved)
+    pair = compare_experiments(legacy, run).rows[0].metrics[metric.spec.id]
+    assert (pair.left.value, pair.right.value) == (1.0, 0.0)
+    assert pair.changes == ("control_input_changed",) and pair.delta is None
 
 
 def test_label_and_ranking_coverage_survives_pairing():

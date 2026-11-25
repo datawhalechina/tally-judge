@@ -12,7 +12,7 @@ from typing import Annotated, Any, Literal, Protocol, get_origin
 from pydantic import TypeAdapter, ValidationError
 from pydantic.fields import FieldInfo
 
-from tallyjudge.core.dataset import canonical_json
+from tallyjudge.core.dataset import canonical_json, is_rag_control
 from tallyjudge.core.errors import InputValidationError
 from tallyjudge.core.results import MetricResult
 
@@ -265,14 +265,23 @@ class MetricBinding:
         return metadata
 
     def inputs_for(
-        self, row: Mapping[str, Any], *, shared_row: bool = False
+        self,
+        row: Mapping[str, Any],
+        *,
+        output: Mapping[str, Any] | None = None,
+        shared_row: bool = False,
     ) -> dict[str, Any]:
-        """Select and validate the bound columns, detaching them from shared run data."""
-        inputs = {
-            name: row[column]
-            for name, column in self.input_map.items()
-            if column in row
-        }
+        """Resolve bound inputs, keeping the dataset's question and references when scoring an experiment."""
+        inputs = {}
+        for name, column in self.input_map.items():
+            if (
+                output is not None
+                and column in output
+                and not is_rag_control(name, column)
+            ):
+                inputs[name] = output[column]
+            elif column in row:
+                inputs[name] = row[column]
         return validate_inputs(
             self.metric.spec, deepcopy(inputs) if shared_row else inputs
         )

@@ -229,7 +229,8 @@ class MetricJob(Job[ScoreResult]):
     async def perform(self, record: dict[str, Any]) -> ScoreResult:
         spec = self.binding.metric.spec
         try:
-            inputs = self.binding.inputs_for(record, shared_row=True)
+            output = self.row.task.output if self.row.task is not None else None
+            inputs = self.binding.inputs_for(record, output=output, shared_row=True)
             self.inputs_sha256 = arguments_sha256(inputs)
             if self.row.task is not None:
                 self.input_sha256_by_name = {

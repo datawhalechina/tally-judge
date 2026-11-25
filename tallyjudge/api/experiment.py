@@ -47,7 +47,7 @@ class ExperimentWrapper:
         collector: RunCollector | None = None,
         **options: Unpack[_RunOptions],
     ) -> RunResult:
-        """Run the function once per row, then score its output overlaid on a copy of the input."""
+        """Score each function output against the dataset's question and reference fields."""
         return await Evaluator(metrics, **options)._arun(
             dataset, collector, self.function, json.loads(self._metadata)
         )

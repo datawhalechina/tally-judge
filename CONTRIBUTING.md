@@ -1,18 +1,18 @@
 # 参与 TallyJudge 开发
 
-感谢你愿意改进 TallyJudge。本文说明如何搭建环境、运行检查，以及迁移原 Ragas 能力时需要记录什么。架构边界和编码约定见[架构与编码总纲](plan/implementation-standards.zh-CN.md)，各阶段的交付范围见[迭代路线](plan/roadmap.zh-CN.md)。
+感谢你愿意改进 TallyJudge。本文说明如何搭建开发环境、运行检查，以及迁移 Ragas 功能时如何验证行为一致。
 
 ## 搭建开发环境
 
-需要 Python 3.12 或更高版本和 [uv](https://docs.astral.sh/uv/)。
+仓库使用 uv 管理 Python 和依赖。安装 uv 后，在本地用 Python 3.12 建立开发环境。[uv 安装说明](https://docs.astral.sh/uv/getting-started/installation/)
 
 ```bash
 git clone https://github.com/datawhalechina/tally-judge.git
 cd tally-judge
-uv sync
+uv sync --python 3.12
 ```
 
-`uv sync` 按提交的 `uv.lock` 安装新包和开发工具。默认环境不安装任何模型 SDK。修改模型插件时，用 `uv sync --group integration` 安装测试固定的 OpenAI SDK 和 HTTP 库。
+uv 会在 `.venv` 中安装当前源码和开发工具。首次解析会生成 `uv.lock`，后续同步复用锁定的版本。锁文件也记录可选插件在不同 Python 版本和系统上的发行包。修改模型插件时，用 `uv sync --locked --group integration` 装入迁移对照所用的 SDK 和 Pydantic 版本。
 
 ## 提交前的检查
 
@@ -30,12 +30,12 @@ uv build --out-dir <临时目录>
 uv run python tests/tallyjudge/installation/test_installation.py --wheel-dir <临时目录>
 ```
 
-修改依赖后运行 `uv lock`，并把更新后的 `uv.lock` 一起提交。CI 使用 `uv sync --locked`，锁文件过期时会失败。
+用 `uv add` 或 `uv remove` 改动依赖时，uv 会同步更新 `pyproject.toml` 和 `uv.lock`。手工编辑依赖声明后运行 `uv lock`，用 `uv lock --check` 在本地确认锁文件与声明一致。
 
 ## 改动的写法
 
 - 一次提交围绕一个可解释的行为或边界。改名和评分公式的变化分开提交。
-- 修改公开行为时，同步更新 docstring、行为测试和 README。只写已经实现并验证过的能力，目标接口留在 `plan/`。
+- 修改公开行为时，同步更新 docstring、行为测试和 README。
 - 新增校验、默认值、异常处理或运行状态时，说明它对应的用户行为和负责的模块。
 - 依赖集中写在根目录 `pyproject.toml`。默认安装保持轻量；插件需要的 SDK 放进可选依赖，并且不在模块顶层导入。
 - 临时笔记放在 `_experiments/`，不要提交构建产物、虚拟环境、日志或密钥。
