@@ -1,6 +1,6 @@
 # 参与 TallyJudge 开发
 
-感谢你愿意改进 TallyJudge。本文说明如何搭建环境、运行检查，以及迁移原 Ragas 能力时需要记录什么。架构边界和编码约定见[架构与编码总纲](plan/implementation-standards.zh-CN.md)，各阶段的交付范围见[迭代路线](plan/roadmap.zh-CN.md)。
+感谢你愿意改进 TallyJudge。本文说明如何搭建环境、运行检查，以及迁移原 Ragas 能力时需要记录什么。
 
 ## 搭建开发环境
 

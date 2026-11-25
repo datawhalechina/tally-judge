@@ -432,4 +432,4 @@ tallyjudge runs show RUN_ID --store runs
 
 ## 参与贡献
 
-欢迎通过 [Issues](https://github.com/datawhalechina/tally-judge/issues) 提交问题和建议，通过 Pull Request 提交改进。开发环境、检查命令和迁移约定见[贡献指南](CONTRIBUTING.md)，设计与路线见[迭代路线](plan/roadmap.zh-CN.md)。原 Ragas 实现保存在 [`legacy-ragas`](https://github.com/datawhalechina/tally-judge/tree/legacy-ragas) 分支，来源与版权说明见 [NOTICE](NOTICE)。
+欢迎通过 [Issues](https://github.com/datawhalechina/tally-judge/issues) 提交问题和建议，通过 Pull Request 提交改进。开发环境、检查命令和迁移约定见[贡献指南](CONTRIBUTING.md)。原 Ragas 实现保存在 [`legacy-ragas`](https://github.com/datawhalechina/tally-judge/tree/legacy-ragas) 分支，来源与版权说明见 [NOTICE](NOTICE)。
