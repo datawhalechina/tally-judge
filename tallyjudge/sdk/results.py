@@ -49,6 +49,17 @@ class ErrorInfo:
 
 @dataclass(frozen=True)
 class ScoreResult:
+    """One binding's state for one row.
+
+    ``inputs_sha256`` digests the validated arguments the scorer actually received,
+    including experiment output overlays and parameter defaults. It lets saved runs
+    be compared without retaining raw inputs; it is None for v1 records, rows that
+    never validated, and arguments that are not JSON values.
+
+    Experiment scores also fingerprint individual validated arguments so callers
+    can compare controls while allowing selected application outputs to differ.
+    """
+
     status: Status
     value: ScoreValue | None = None
     reason: str | None = None
@@ -144,6 +155,7 @@ class RunResult:
 
     @property
     def usage(self) -> ScoreUsage | None:
+        """Sum sealed experiment and metric usage, once per invocation."""
         usages = []
         for row in self.rows:
             if row.task is not None and row.task.usage is not None:
@@ -152,6 +164,7 @@ class RunResult:
         return ScoreUsage.aggregate(usages)
 
     def row_for(self, case_id: str | int) -> RowResult:
+        """Look up a sample by its normalized dataset ID."""
         key = str(case_id)
         for row in self.rows:
             if row.case_id == key:
@@ -159,6 +172,7 @@ class RunResult:
         raise KeyError(key)
 
     def input_for(self, case_id: str | int) -> dict[str, Any]:
+        """Return the original sample, raising LookupError for a redacted run."""
         row = self.row_for(case_id)
         if self.inputs is None:
             raise LookupError("Original inputs were not saved")
@@ -166,6 +180,11 @@ class RunResult:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "RunResult":
+        """Read an export in any supported format version without loading the scoring plugins.
+
+        Derived summaries are recomputed. The manifest binds each result and
+        retained input to the same ID and position, even with a custom ID field.
+        """
         result = _RUN_SCHEMA.validate_json(
             json.dumps(upgrade(data), allow_nan=False), strict=True
         )
@@ -211,6 +230,7 @@ class RunResult:
         return result
 
     def save(self, *, backend: "StorageBackend", include_inputs: bool = True) -> None:
+        """Persist a terminal run using the caller's backend."""
         backend.save_run(self, include_inputs=include_inputs)
 
     def _payload(self, *, include_inputs: bool) -> dict[str, Any]:
@@ -225,6 +245,7 @@ class RunResult:
         return data
 
     def to_dict(self, *, include_inputs: bool = True) -> dict[str, Any]:
+        """Export the stored fields plus summaries recomputed from the individual steps."""
         data = self._payload(include_inputs=include_inputs)
         usage = self.usage
         data["summary"] = self.summary
@@ -274,6 +295,8 @@ def _stored_value_is_valid(
 
 
 class RunCollector:
+    """One active run at a time. Snapshots are detached from live execution."""
+
     def __init__(self) -> None:
         self._result: RunResult | None = None
         self._active = False
@@ -294,6 +317,11 @@ class RunCollector:
         self._active = False
 
     def snapshot(self) -> RunResult:
+        """Return a detached copy of the current or most recent run.
+
+        Raises:
+            RuntimeError: If this collector has never accepted a run.
+        """
         if self._result is None:
             raise RuntimeError("No run has been accepted by this collector")
         return copy.deepcopy(self._result)

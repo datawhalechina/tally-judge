@@ -23,7 +23,7 @@ from tallyjudge.sdk.errors import (
 )
 from tallyjudge.sdk.events import EventKind, RunEvents
 from tallyjudge.sdk.gate import UsageScope
-from tallyjudge.sdk.metrics import MetricBinding, validate_output
+from tallyjudge.sdk.metrics import Control, MetricBinding, validate_output
 from tallyjudge.sdk.results import (
     ErrorInfo,
     MetricResult,
@@ -115,6 +115,7 @@ class MetricJob(Job[ScoreResult]):
     binding: MetricBinding
     metadata: dict[str, Any]
     cache: ScoreCache | None
+    controls: Control | None
     cache_key: str | None = field(default=None, init=False)
     inputs_sha256: str | None = field(default=None, init=False)
     input_sha256_by_name: dict[str, str | None] | None = field(default=None, init=False)
@@ -185,7 +186,10 @@ class MetricJob(Job[ScoreResult]):
     async def perform(self, record: dict[str, Any]) -> ScoreResult:
         spec = self.binding.metric.spec
         try:
-            inputs = self.binding.inputs_for(record, shared_row=True)
+            output = self.row.task.output if self.row.task is not None else None
+            inputs = self.binding.inputs_for(
+                record, output=output, controls=self.controls, shared_row=True
+            )
             self.inputs_sha256 = arguments_sha256(inputs)
             if self.row.task is not None:
                 self.input_sha256_by_name = {

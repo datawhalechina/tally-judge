@@ -102,6 +102,8 @@ _budget: ContextVar[RequestBudget | None] = ContextVar(
 
 
 class RequestCall(list[RequestRecord]):
+    """All actual requests made by a single generation or embedding invocation."""
+
     def __init__(self) -> None:
         super().__init__()
         scope = _scope.get()
@@ -163,6 +165,7 @@ class GatedModel:
 
 
 def gated(model: Any) -> GatedModel:
+    """Wrap a model so its calls are accounted for; wrapping twice has no effect."""
     return model if isinstance(model, GatedModel) else GatedModel(model)
 
 
@@ -170,6 +173,7 @@ def gated(model: Any) -> GatedModel:
 def record_request(
     kind: RequestKind, call: list[RequestRecord]
 ) -> Iterator[RequestRecord]:
+    """Enter immediately before transport. A direct call and its score share one record."""
     scope = _open_scope()
     budget = _budget.get()
     if budget is not None:

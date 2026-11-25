@@ -3,6 +3,7 @@ import logging
 from collections.abc import Sequence
 from typing import Any
 
+from tallyjudge.api.controls import dataset_bound
 from tallyjudge.engine.config import ExecutionConfig
 from tallyjudge.engine.jobs import RowFunction
 from tallyjudge.engine.scheduler import run_tasks
@@ -19,6 +20,14 @@ logger = logging.getLogger(__name__)
 
 
 class Evaluator:
+    """Evaluate datasets with a fixed set of metric bindings and execution settings.
+
+    With ``backend``, every terminal run is saved automatically from a worker thread.
+    A failed save of a completed or stopped run raises ``RunSaveError`` carrying the
+    result; while an abort, error or cancellation propagates, a failed save is only
+    logged so the original exception reaches the caller.
+    """
+
     def __init__(
         self,
         metrics: Sequence[Metric | MetricBinding],
@@ -45,6 +54,11 @@ class Evaluator:
     async def arun(
         self, dataset: Dataset, *, collector: RunCollector | None = None
     ) -> RunResult:
+        """Score a dataset in the caller's loop.
+
+        On external cancellation, the caller's collector retains the partial result.
+        Cleanup may delay propagation by up to the configured grace period.
+        """
         return await self._arun(dataset, collector, None)
 
     async def _arun(
@@ -66,6 +80,7 @@ class Evaluator:
                 experiment_metadata=experiment_metadata,
                 event_sink=self.event_sink,
                 cache=self.cache,
+                controls=dataset_bound,
             )
         except EvaluationAborted as exc:
             await self._save_partial(exc.partial_result, collector.cleanup_deadline)
@@ -107,6 +122,7 @@ class Evaluator:
     def run(
         self, dataset: Dataset, *, collector: RunCollector | None = None
     ) -> RunResult:
+        """Score a dataset synchronously. Use arun inside an active event loop."""
         return run_sync(
             lambda: self.arun(dataset, collector=collector),
             "arun",

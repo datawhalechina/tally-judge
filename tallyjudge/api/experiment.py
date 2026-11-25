@@ -64,7 +64,9 @@ class ExperimentWrapper:
 @overload
 def experiment(
     function: RowFunction, *, metadata: dict[str, Any] | None = None
-) -> ExperimentWrapper: ...
+) -> ExperimentWrapper:
+    """Decorate a row function and persist its JSON prompt/model metadata in each run."""
+    ...
 
 
 @overload

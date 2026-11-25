@@ -11,6 +11,8 @@ from tallyjudge.sdk.sync import run_sync
 
 @dataclass(frozen=True)
 class OptimizationResult:
+    """Training selection and an independent paired holdout report."""
+
     instruction: str
     config_snapshot: dict[str, Any]
     training_scores: dict[str, float | None]
@@ -21,6 +23,8 @@ class OptimizationResult:
 
 @runtime_checkable
 class PromptOptimizer(Protocol):
+    """Improve an instruction on labeled training rows with a disjoint holdout."""
+
     async def arun(
         self,
         instruction: str,
@@ -43,6 +47,8 @@ OPTIMIZATION = KindSpec("optimization", PromptOptimizer)
 
 
 class PromptOptimizerBase(ABC):
+    """Implement arun; the synchronous run is provided."""
+
     @abstractmethod
     async def arun(
         self,

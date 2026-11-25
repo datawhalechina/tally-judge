@@ -14,7 +14,7 @@ from tallyjudge.sdk.cache import ScoreCache
 from tallyjudge.sdk.dataset import Dataset
 from tallyjudge.sdk.errors import ClientLoopError, EvaluationAborted
 from tallyjudge.sdk.events import EventSink, RunEvents
-from tallyjudge.sdk.metrics import MetricBinding
+from tallyjudge.sdk.metrics import Control, MetricBinding
 from tallyjudge.sdk.results import (
     CleanupWarning,
     RowResult,
@@ -45,6 +45,7 @@ class _Run:
     events: RunEvents
     row_function: RowFunction | None
     cache: ScoreCache | None
+    controls: Control | None
     loop: asyncio.AbstractEventLoop
     active: dict[asyncio.Task[Any], Job[Any]] = field(default_factory=dict)
     cleaning: dict[asyncio.Task[Any], tuple[Job[Any], float]] = field(
@@ -73,8 +74,6 @@ class _Run:
         deadline = None if timeout is None else self.loop.time() + timeout
         record = self.records[row.input_index]
         if isinstance(step, MetricBinding):
-            if row.task is not None and row.task.output is not None:
-                record = record | row.task.output
             job: Job[Any] = MetricJob(
                 row,
                 deadline,
@@ -82,6 +81,7 @@ class _Run:
                 step,
                 self.result.metrics[step.key],
                 self.cache,
+                self.controls,
             )
         else:
             record = copy.deepcopy(record)
@@ -198,6 +198,7 @@ async def run_tasks(
     experiment_metadata: dict[str, Any] | None = None,
     event_sink: EventSink | None = None,
     cache: ScoreCache | None = None,
+    controls: Control | None = None,
 ) -> RunResult:
     metadata = {binding.key: binding.snapshot() for binding in bindings}
     records = dataset.records
@@ -232,6 +233,7 @@ async def run_tasks(
         events,
         row_function,
         cache,
+        controls,
         loop,
     )
     error: BaseException | None = None

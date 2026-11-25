@@ -119,6 +119,8 @@ def _validated(
 
 
 class PluginRegistry:
+    """Map stable plugin IDs to lazily loaded factories and their configuration."""
+
     def __init__(
         self,
         specs: Iterable[PluginSpec | KindSpec] = (),
@@ -155,6 +157,7 @@ class PluginRegistry:
                     )
 
     def register(self, spec: PluginSpec | KindSpec, *, replace: bool = False) -> None:
+        """Register a manifest, replacing an existing ID only when requested."""
         if isinstance(spec, KindSpec):
             if spec.kind in KINDS or spec.kind in self._kinds:
                 raise PluginError(f"Plugin kind already defined: {spec.kind}")
@@ -167,10 +170,12 @@ class PluginRegistry:
         self._specs[spec.id] = spec
 
     def kinds(self) -> tuple[str, ...]:
+        """Name the built-in kinds followed by the kinds packages have defined."""
         self._discover()
         return (*KINDS, *self._kinds)
 
     def list(self, *, kind: str | None = None) -> tuple[PluginSpec, ...]:
+        """List manifests without importing plugin implementations."""
         self._discover()
         return tuple(
             spec for spec in self._specs.values() if kind is None or spec.kind == kind
@@ -194,9 +199,11 @@ class PluginRegistry:
         return spec
 
     def spec(self, plugin_id: str) -> PluginSpec:
+        """Return a plugin's manifest row without importing its implementation."""
         return self._get(plugin_id)
 
     def describe(self, plugin_id: str, **settings: Any) -> MetricSpec:
+        """Resolve a metric's scoring contract from settings, without injected clients."""
         spec = self._get(plugin_id, "metric")
         factory = _load(spec.factory, spec.id)
         build_spec = getattr(factory, "spec_from_config", None)
@@ -220,9 +227,11 @@ class PluginRegistry:
         return metric_spec
 
     def create(self, plugin_id: str, **config: Any) -> Any:
+        """Construct a registered plugin selected by ID."""
         return self._construct(self._get(plugin_id), config)
 
     def create_for_kind(self, kind: str, plugin_id: str, /, **config: Any) -> Any:
+        """Construct a plugin after verifying the kind requested by its public factory."""
         return self._construct(self._get(plugin_id, kind), config)
 
     def _construct(self, spec: PluginSpec, config: dict[str, Any]) -> Any:

@@ -10,6 +10,8 @@ type Dependencies = Mapping[str, Literal["language_model", "embedding_model", "c
 
 @dataclass(frozen=True)
 class PluginSpec:
+    """One registry row: a plugin ID, its kind and the factory that builds it."""
+
     id: str
     kind: str
     api_version: int
@@ -37,6 +39,8 @@ class PluginSpec:
 
 @dataclass(frozen=True)
 class Plugin:
+    """What a plugin class declares about itself; manifests are generated from it."""
+
     kind: str
     dependencies: Dependencies = field(default_factory=dict)
     optional_dependencies: Dependencies = field(default_factory=dict)
@@ -47,6 +51,8 @@ class Plugin:
 
 @dataclass(frozen=True)
 class KindSpec:
+    """A plugin kind defined by a package, with the contract its plugins must satisfy."""
+
     kind: str
     contract: str | type
 

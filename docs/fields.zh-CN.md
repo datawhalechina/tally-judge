@@ -27,3 +27,5 @@
 `case_id` 是样本的标识，不是指标的输入。要对照两次运行或做配对比较，每行都要提供它。
 
 `compare_experiments` 默认把 `response`、`retrieved_contexts`、`retrieved_context_ids` 当作被测应用的输出，允许它们在两次实验之间不同；其余字段必须相同才会给出分差。你的应用输出别的字段时，用 `output_fields` 指明。
+
+问题和对照字段始终取数据集里的值：`user_input`、`reference`，以及以 `reference_`、`expected_`、`forbidden_` 开头的字段。被测应用即使返回了同名字段，评分时也不会采用；通过列名映射指向这些列时同样如此。

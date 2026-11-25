@@ -15,6 +15,8 @@ from tallyjudge.sdk.usage import RequestRecord, Tracking, UsageSummary
 
 @dataclass(frozen=True)
 class GenerationResult[T]:
+    """A parsed response with usage from every attempt at the same prompt."""
+
     data: T
     usage: UsageSummary
     model: str | None = None
@@ -23,6 +25,8 @@ class GenerationResult[T]:
 
 @dataclass(frozen=True)
 class EmbeddingResult:
+    """Vectors in the input order and usage across transport batches."""
+
     vectors: list[list[float]]
     usage: UsageSummary
     model: str | None = None
@@ -31,6 +35,8 @@ class EmbeddingResult:
 
 @runtime_checkable
 class LanguageModel(Protocol):
+    """Generate structured text using the plugin's fixed settings and tracking mode."""
+
     @property
     def plugin_id(self) -> str: ...
     @property
@@ -38,17 +44,23 @@ class LanguageModel(Protocol):
     def config_snapshot(self) -> dict[str, Any]: ...
     async def agenerate[T: BaseModel](
         self, prompt: PromptInput, response_model: type[T]
-    ) -> GenerationResult[T]: ...
+    ) -> GenerationResult[T]:
+        """Validate the generated text against response_model and return observed usage."""
+        ...
 
 
 @runtime_checkable
 class EmbeddingModel(Protocol):
+    """Embed a sequence of texts; the caller owns any injected client."""
+
     @property
     def plugin_id(self) -> str: ...
     @property
     def usage_tracking(self) -> Tracking: ...
     def config_snapshot(self) -> dict[str, Any]: ...
-    async def aembed_texts(self, texts: Sequence[str]) -> EmbeddingResult: ...
+    async def aembed_texts(self, texts: Sequence[str]) -> EmbeddingResult:
+        """Return one vector per input in order, including an empty result for no texts."""
+        ...
 
 
 def model_snapshot(model: LanguageModel | EmbeddingModel) -> dict[str, Any]:
@@ -56,11 +68,15 @@ def model_snapshot(model: LanguageModel | EmbeddingModel) -> dict[str, Any]:
 
 
 class LanguageModelBase(ABC):
+    """Generate a typed response, spending the retry budget solely on invalid JSON or schema."""
+
     usage_tracking: Literal["per_request"] = "per_request"
 
     @property
     @abstractmethod
-    def structured_retries(self) -> int: ...
+    def structured_retries(self) -> int:
+        """Number of additional generation attempts allowed after parsing fails."""
+        ...
 
     @abstractmethod
     async def _acomplete(
@@ -70,6 +86,7 @@ class LanguageModelBase(ABC):
     async def agenerate[T: BaseModel](
         self, prompt: PromptInput, response_model: type[T]
     ) -> GenerationResult[T]:
+        """Return the parsed response and usage from all attempts at this prompt."""
         messages = list(prompt.messages)
         records = RequestCall()
         retries_left = self.structured_retries

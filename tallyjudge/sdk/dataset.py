@@ -50,6 +50,8 @@ def arguments_sha256(inputs: Mapping[str, Any]) -> str | None:
 
 @dataclass(frozen=True)
 class Dataset:
+    """Immutable records. Accessors return detached copies, never internal data."""
+
     _records: tuple[str, ...]
     _ids: tuple[str, ...]
     id_source: str

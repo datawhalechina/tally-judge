@@ -37,12 +37,18 @@ class RunEvent:
 
 @runtime_checkable
 class EventSink(Protocol):
-    def emit(self, event: RunEvent) -> None: ...
+    """Observe a run; a failing sink never changes scores."""
+
+    def emit(self, event: RunEvent) -> None:
+        """Record one event in emission order."""
+        ...
 
 
 @runtime_checkable
 class BufferedEventSink(EventSink, Protocol):
-    async def aflush_run(self, run_id: str) -> None: ...
+    async def aflush_run(self, run_id: str) -> None:
+        """Wait for this run's terminal event to reach storage."""
+        ...
 
 
 class RunEvents:

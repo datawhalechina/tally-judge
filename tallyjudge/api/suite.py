@@ -54,12 +54,15 @@ def _layer(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
 
 
 class Suite:
+    """An evaluation described in a TOML file: dataset, models, metrics and execution."""
+
     def __init__(self, config: SuiteConfig, root: Path) -> None:
         self.config = config
         self.root = root
 
     @classmethod
     def load(cls, path: str | Path, *overlays: str | Path) -> "Suite":
+        """Read a suite and layer overlay files over it; models and metrics merge by name."""
         path = Path(path)
         data: dict[str, Any] = {}
         for layer in (path, *map(Path, overlays)):
@@ -67,6 +70,7 @@ class Suite:
         return cls(SuiteConfig.model_validate(data), path.resolve().parent)
 
     def effective_config(self) -> dict[str, Any]:
+        """Return the configuration after overlays, as it will be run."""
         return self.config.model_dump(mode="json", exclude_none=True)
 
     def _metadata(self) -> dict[str, Any]:
@@ -90,6 +94,7 @@ class Suite:
             )
 
     async def arun(self, *, backend: StorageBackend | None = None) -> RunResult:
+        """Build the declared plugins, run the suite and record its ID and revision."""
         async with AsyncExitStack() as stack:
             models: dict[str, Any] = {}
 
@@ -151,4 +156,5 @@ class Suite:
             )
 
     def run(self, *, backend: StorageBackend | None = None) -> RunResult:
+        """Run the suite synchronously. Use arun inside an active event loop."""
         return run_sync(lambda: self.arun(backend=backend), "arun")

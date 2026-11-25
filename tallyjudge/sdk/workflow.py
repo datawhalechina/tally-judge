@@ -40,6 +40,7 @@ class WorkflowTrace(BaseModel):
 
     @model_validator(mode="after")
     def validate_tree(self):
+        """Reject ambiguous attempts or parent links in a recorded trace."""
         seen = set()
         for step in self.steps:
             if step.step_id in seen or (

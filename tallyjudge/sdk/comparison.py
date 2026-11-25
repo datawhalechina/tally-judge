@@ -4,6 +4,7 @@ from statistics import mean
 from typing import Any
 
 from tallyjudge.sdk.dataset import arguments_sha256, canonical_json, json_sha256
+from tallyjudge.sdk.metrics import Control
 from tallyjudge.sdk.results import (
     RowResult,
     RowTaskResult,
@@ -53,6 +54,7 @@ def _argument_hashes(
         return {}
     source = original or {}
     output = row.task.output if row.task and row.task.output else {}
+    # Historical runs without per-field hashes scored the output-first overlay.
     arguments = {
         name: output[column] if column in output else source[column]
         for name, column in input_map.items()
@@ -72,6 +74,7 @@ def _experiment_input_change(
     rrow: RowResult,
     key: str,
     outputs: frozenset[str] | None,
+    controls: Control | None,
 ) -> str | None:
     a, b = lrow.metrics[key], rrow.metrics[key]
     if a.inputs_sha256 is not None and b.inputs_sha256 is not None:
@@ -80,12 +83,14 @@ def _experiment_input_change(
         if outputs is None:
             return "experiment_input_changed"
     input_map = left.metrics[key]["input_map"]
-    controls = [
+    bound = [
         name
         for name, column in input_map.items()
-        if outputs is None or column not in outputs
+        if outputs is None
+        or column not in outputs
+        or (controls is not None and controls(name, column))
     ]
-    if not controls:
+    if not bound:
         return None
     linput = left.inputs[lrow.input_index] if left.inputs is not None else None
     rinput = right.inputs[rrow.input_index] if right.inputs is not None else None
@@ -97,7 +102,7 @@ def _experiment_input_change(
     )
     kind = "experiment_input" if outputs is None else "control_input"
     unknown = False
-    for name in controls:
+    for name in bound:
         lvalue, rvalue = before.get(name), after.get(name)
         if lvalue is None or rvalue is None:
             unknown = True
@@ -107,11 +112,15 @@ def _experiment_input_change(
 
 
 def compare_runs(left: RunResult, right: RunResult) -> RunComparison:
-    return _compare(left, right, None)
+    """Compare right minus left for successful numeric scores with the same inputs and settings."""
+    return _compare(left, right, None, None)
 
 
 def _compare(
-    left: RunResult, right: RunResult, outputs: frozenset[str] | None
+    left: RunResult,
+    right: RunResult,
+    outputs: frozenset[str] | None,
+    controls: Control | None,
 ) -> RunComparison:
     generated = any(
         entry["id_source"] == "generated"
@@ -182,7 +191,9 @@ def _compare(
             b = rrow.metrics.get(key) if rrow else None
             settings = binding_changes[key]
             if not (changes or settings) and lrow and rrow and (lrow.task or rrow.task):
-                change = _experiment_input_change(left, right, lrow, rrow, key, outputs)
+                change = _experiment_input_change(
+                    left, right, lrow, rrow, key, outputs, controls
+                )
                 if change is not None:
                     settings += (change,)
             elif (
@@ -245,8 +256,9 @@ def compare_experiments(
     right: RunResult,
     *,
     output_fields: Iterable[str],
+    controls: Control | None = None,
 ) -> ExperimentComparison:
-    rows = _compare(left, right, frozenset(output_fields)).rows
+    rows = _compare(left, right, frozenset(output_fields), controls).rows
     summaries = {}
     for key in dict.fromkeys((*left.metrics, *right.metrics)):
         left_valid = right_valid = paired = 0

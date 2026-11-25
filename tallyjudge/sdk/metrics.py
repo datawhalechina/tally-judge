@@ -1,7 +1,7 @@
 import json
 import math
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from copy import deepcopy
 from dataclasses import dataclass, field
 from types import MappingProxyType
@@ -20,9 +20,19 @@ from tallyjudge.sdk.results import (
 )
 from tallyjudge.sdk.sync import run_sync
 
+type Control = Callable[[str, str], bool]
+
 
 @dataclass(frozen=True)
 class MetricSpec:
+    """Declare a metric's identity, typed parameters and output contract.
+
+    ``defaults`` holds values for optional parameters. Binding validation applies
+    them when a row lacks the column, so batch scoring, direct ``ascore_inputs``
+    calls and score cache keys all see the same effective arguments.
+    Numeric ``levels`` restrict successful scores to the declared integer grades.
+    """
+
     id: str
     revision: str
     inputs: Mapping[str, Any]
@@ -106,10 +116,14 @@ class MetricSpec:
 
 
 class Metric(Protocol):
+    """A mapping-based metric usable by the evaluator, independent of its implementation."""
+
     @property
     def spec(self) -> MetricSpec: ...
 
-    async def ascore_inputs(self, inputs: Mapping[str, Any]) -> MetricResult: ...
+    async def ascore_inputs(self, inputs: Mapping[str, Any]) -> MetricResult:
+        """Score the declared parameters supplied by the binding."""
+        ...
 
     def config_snapshot(self) -> dict[str, Any]: ...
 
@@ -151,23 +165,31 @@ def validate_inputs(spec: MetricSpec, inputs: Mapping[str, Any]) -> dict[str, An
 
 
 class MetricBase(ABC):
+    """Implement ascore with the named parameters declared in spec."""
+
     spec: MetricSpec
 
     @abstractmethod
-    async def ascore(self, *args: Any, **kwargs: Any) -> MetricResult: ...
+    async def ascore(self, *args: Any, **kwargs: Any) -> MetricResult:
+        """Compute one score from typed arguments."""
+        ...
 
     async def ascore_inputs(self, inputs: Mapping[str, Any]) -> MetricResult:
+        """Validate a mapping once before scoring its named parameters."""
         return await self.ascore(**validate_inputs(self.spec, inputs))
 
     def config_snapshot(self) -> dict[str, Any]:
         return {}
 
     def score(self, **inputs: Any) -> MetricResult:
+        """Score checked inputs synchronously. In an active loop, await ascore_inputs(inputs)."""
         return run_sync(lambda: self.ascore_inputs(inputs), "ascore_inputs")
 
 
 @dataclass(frozen=True, init=False)
 class MetricBinding:
+    """Bind metric parameter names to dataset columns under a unique result key."""
+
     metric: Metric
     key: str
     input_map: Mapping[str, str]
@@ -197,6 +219,7 @@ class MetricBinding:
         )
 
     def snapshot(self) -> dict[str, Any]:
+        """Describe this binding's score and settings independently of its live plugin."""
         spec = self.metric.spec
         config = self.metric.config_snapshot()
         if not isinstance(config, dict):
@@ -221,18 +244,30 @@ class MetricBinding:
         return metadata
 
     def inputs_for(
-        self, row: Mapping[str, Any], *, shared_row: bool = False
+        self,
+        row: Mapping[str, Any],
+        *,
+        output: Mapping[str, Any] | None = None,
+        controls: Control | None = None,
+        shared_row: bool = False,
     ) -> dict[str, Any]:
-        inputs = {
-            name: row[column]
-            for name, column in self.input_map.items()
-            if column in row
-        }
+        """Resolve bound inputs. An experiment output overrides a dataset column unless ``controls`` binds it to the dataset."""
+        inputs = {}
+        for name, column in self.input_map.items():
+            if (
+                output is not None
+                and column in output
+                and not (controls is not None and controls(name, column))
+            ):
+                inputs[name] = output[column]
+            elif column in row:
+                inputs[name] = row[column]
         return validate_inputs(
             self.metric.spec, deepcopy(inputs) if shared_row else inputs
         )
 
     async def ascore_row(self, row: Mapping[str, Any]) -> MetricResult:
+        """Score the bound columns of one input row."""
         return await self.ascore_validated(self.inputs_for(row))
 
     async def ascore_validated(self, inputs: Mapping[str, Any]) -> MetricResult:
