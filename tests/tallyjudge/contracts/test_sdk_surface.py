@@ -27,7 +27,9 @@ def surface():
         "names": sorted(sdk.__all__),
         "contracts": {
             name: {
-                method: str(inspect.signature(getattr(getattr(sdk, name), method)))
+                method: str(
+                    inspect.signature(getattr(getattr(sdk, name), method))
+                ).replace("typing.", "")
                 for method in methods
             }
             for name, methods in CONTRACTS.items()

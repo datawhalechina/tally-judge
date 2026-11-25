@@ -48,22 +48,22 @@
   ],
   "contracts": {
     "Metric": {
-      "ascore_inputs": "(self, inputs: collections.abc.Mapping[str, typing.Any]) -> tallyjudge.sdk.results.MetricResult",
-      "config_snapshot": "(self) -> dict[str, typing.Any]"
+      "ascore_inputs": "(self, inputs: collections.abc.Mapping[str, Any]) -> tallyjudge.sdk.results.MetricResult",
+      "config_snapshot": "(self) -> dict[str, Any]"
     },
     "MetricBase": {
       "ascore": "(self, *args: Any, **kwargs: Any) -> tallyjudge.sdk.results.MetricResult",
-      "ascore_inputs": "(self, inputs: collections.abc.Mapping[str, typing.Any]) -> tallyjudge.sdk.results.MetricResult",
-      "config_snapshot": "(self) -> dict[str, typing.Any]",
+      "ascore_inputs": "(self, inputs: collections.abc.Mapping[str, Any]) -> tallyjudge.sdk.results.MetricResult",
+      "config_snapshot": "(self) -> dict[str, Any]",
       "score": "(self, **inputs: Any) -> tallyjudge.sdk.results.MetricResult"
     },
     "LanguageModel": {
       "agenerate": "(self, prompt: tallyjudge.sdk.prompts.PromptInput, response_model: type[T]) -> tallyjudge.sdk.models.GenerationResult[T]",
-      "config_snapshot": "(self) -> dict[str, typing.Any]"
+      "config_snapshot": "(self) -> dict[str, Any]"
     },
     "EmbeddingModel": {
       "aembed_texts": "(self, texts: collections.abc.Sequence[str]) -> tallyjudge.sdk.models.EmbeddingResult",
-      "config_snapshot": "(self) -> dict[str, typing.Any]"
+      "config_snapshot": "(self) -> dict[str, Any]"
     },
     "StorageBackend": {
       "save_run": "(self, result: tallyjudge.sdk.results.RunResult, *, include_inputs: bool = True) -> None",
@@ -80,10 +80,10 @@
       "convert": "(self, source: Any) -> Any"
     },
     "Runner": {
-      "__call__": "(self, row: dict[str, typing.Any]) -> dict[str, Any] | None | collections.abc.Awaitable[dict[str, Any] | None]"
+      "__call__": "(self, row: dict[str, Any]) -> dict[str, Any] | None | collections.abc.Awaitable[dict[str, Any] | None]"
     },
     "Analyzer": {
-      "analyze": "(self, runs: collections.abc.Sequence[tallyjudge.sdk.results.RunResult]) -> dict[str, typing.Any]"
+      "analyze": "(self, runs: collections.abc.Sequence[tallyjudge.sdk.results.RunResult]) -> dict[str, Any]"
     }
   },
   "records": {
