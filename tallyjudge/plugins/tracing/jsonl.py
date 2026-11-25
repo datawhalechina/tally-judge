@@ -1,5 +1,3 @@
-"""Local append-only events, one JSONL stream per run."""
-
 import asyncio
 from concurrent.futures import Future, wait
 from dataclasses import asdict, dataclass, field
@@ -7,9 +5,10 @@ from pathlib import Path
 from queue import SimpleQueue
 from threading import Thread
 
-from tallyjudge.core.dataset import canonical_json
-from tallyjudge.core.events import RunEvent
-from tallyjudge.plugins._local import run_file
+from tallyjudge.plugins._local import DirectoryConfig, directory, run_file
+from tallyjudge.sdk.dataset import canonical_json
+from tallyjudge.sdk.events import RunEvent
+from tallyjudge.sdk.plugin import Plugin
 
 
 @dataclass
@@ -31,15 +30,17 @@ class _Stream:
 
 
 class JsonlEventSink:
-    """Write each run's ordered events on one worker with its own JSONL file."""
+    plugin = Plugin("event")
+    plugin_id = "event.local.jsonl"
+
+    Config = DirectoryConfig
 
     def __init__(self, *, root: str | Path) -> None:
-        self.root = Path(root)
+        self.root = directory(root)
         self.root.mkdir(parents=True, exist_ok=True)
         self._streams: dict[str, _Stream] = {}
 
     def emit(self, event: RunEvent) -> None:
-        """Queue one event without waiting for disk I/O on the event loop."""
         stream = self._streams.get(event.run_id)
         if stream is None:
             path = run_file(self.root, "events", event.run_id)
@@ -51,12 +52,10 @@ class JsonlEventSink:
             stream.queue.put(event)
 
     async def aflush_run(self, run_id: str) -> None:
-        """Wait for queued writes and propagate the writer's error to the evaluator."""
         stream = self._streams.pop(run_id)
         await asyncio.wrap_future(stream.done)
 
     def close(self) -> None:
-        """Finish and join any writers used outside an evaluator."""
         streams = tuple(self._streams.values())
         self._streams.clear()
         for stream in streams:

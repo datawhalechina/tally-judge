@@ -14,9 +14,7 @@ from random import Random
 
 from pydantic import BaseModel
 
-from tallyjudge.core.prompts import StructuredPrompt
-from tallyjudge.core.usage import mark_usage_source
-from tallyjudge.interfaces.models import LanguageModel
+from tallyjudge.plugins._prompting import StructuredPrompt
 from tallyjudge.plugins.synthesis._planning_prompts import (
     ConceptCombinationPrompt,
     ConceptsList,
@@ -34,6 +32,7 @@ from tallyjudge.plugins.synthesis.scenarios import (
     QueryStyle,
     SingleHopScenario,
 )
+from tallyjudge.sdk.models import LanguageModel
 
 SINGLE = "single_hop_specific_query_synthesizer"
 ABSTRACT = "multi_hop_abstract_query_synthesizer"
@@ -44,8 +43,6 @@ type Scenario = SingleHopScenario | MultiHopScenario
 def _indirect_clusters(
     edges: Sequence[EvidenceRelation], n: int
 ) -> list[tuple[str, ...]]:
-    # KnowledgeGraph.find_n_indirect_clusters walks to a leaf or three nodes, then
-    # takes turns among starting nodes, preferring a path over any of its subsets.
     neighbors: dict[str, set[str]] = defaultdict(set)
     unique_edges = set()
     for edge in edges:
@@ -88,12 +85,10 @@ def _indirect_clusters(
 
 
 def _groups(items: list | dict) -> list[tuple[str, ...]]:
-    """Normalize the string, pair and mapping forms of archived overlap properties."""
     return sorted({(item,) if isinstance(item, str) else tuple(item) for item in items})
 
 
 def _representative_summaries(items: list[tuple[str, list[float]]]) -> list[str]:
-    # The archive groups by raw dot product, even for non-unit vectors.
     representatives = []
     visited = set()
     for i, (summary, vector) in enumerate(items):
@@ -110,8 +105,6 @@ def _representative_summaries(items: list[tuple[str, list[float]]]) -> list[str]
 
 
 class ScenarioPlanner:
-    """Plan cases from typed nodes and relationships before asking for any answers."""
-
     def __init__(self, graph: EvidenceGraph, llm: LanguageModel, rng: Random):
         self.rows = {row["chunk_id"]: row for row in graph}
         if any("node_type" not in row for row in self.rows.values()):
@@ -147,7 +140,6 @@ class ScenarioPlanner:
     async def _ask[I: BaseModel, O: BaseModel](
         self, template: StructuredPrompt[I, O], data: I
     ) -> O:
-        mark_usage_source("generation", self.llm.plugin_id, self.llm.usage_tracking)
         return (
             await self.llm.agenerate(template.render(data), template.output_model)
         ).data
@@ -215,7 +207,6 @@ class ScenarioPlanner:
                     (group, nodes, p, style, length)
                     for p, style, length in product(allowed, QueryStyle, QueryLength)
                 )
-        # In both archived sampling routines every shuffled option is accepted up to the quota.
         self.rng.shuffle(options)
         result = []
         for group, nodes, persona, style, length in options[:count]:
@@ -323,7 +314,6 @@ class ScenarioPlanner:
     async def select(
         self, size: int, supplied: Sequence[Persona], maximum: int
     ) -> list[tuple[str, Scenario]]:
-        """Apply independent ceiling quotas to eligible strategies in archived order."""
         strategies = []
         if self.single_nodes:
             strategies.append((SINGLE, self._single))

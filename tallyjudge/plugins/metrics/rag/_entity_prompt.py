@@ -2,12 +2,11 @@
 
 from functools import cache
 
-from tallyjudge.core.prompts import StructuredPrompt
+from tallyjudge.plugins._prompting import StructuredPrompt
 
 
 @cache
 def prompt():
-    """Build the original entity extraction prompt."""
     from pydantic import BaseModel, Field
 
     class ExtractEntitiesInput(BaseModel):

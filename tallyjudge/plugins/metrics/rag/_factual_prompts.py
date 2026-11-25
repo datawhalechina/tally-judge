@@ -2,12 +2,11 @@
 
 from functools import cache
 
-from tallyjudge.core.prompts import StructuredPrompt
+from tallyjudge.plugins._prompting import StructuredPrompt
 
 
 @cache
 def prompts():
-    """Build the archived schemas and per-granularity example sets."""
     from pydantic import BaseModel, Field
 
     class ClaimDecompositionInput(BaseModel):

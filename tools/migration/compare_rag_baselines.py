@@ -10,8 +10,8 @@ from collections import Counter, defaultdict, deque
 from pathlib import Path
 
 from tallyjudge import Dataset, Evaluator, create_metric
-from tallyjudge.core.usage import UsageSummary
-from tallyjudge.interfaces.models import EmbeddingResult, LanguageModelBase
+from tallyjudge.sdk.usage import UsageSummary
+from tallyjudge.sdk.models import EmbeddingResult, LanguageModelBase
 
 
 # The public score schema records these degenerate cases with a reason instead of an archived number.

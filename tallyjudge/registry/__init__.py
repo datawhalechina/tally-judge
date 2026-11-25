@@ -1,7 +1,7 @@
 from tallyjudge.registry.builtins import BUILTINS
 from tallyjudge.registry.registry import PluginRegistry
-from tallyjudge.registry.specs import PluginSpec
+from tallyjudge.sdk.plugin import KindSpec, PluginSpec
 
-registry = PluginRegistry(BUILTINS)
+registry = PluginRegistry(BUILTINS, entry_point_group="tallyjudge.plugins")
 
-__all__ = ["PluginRegistry", "PluginSpec", "registry"]
+__all__ = ["KindSpec", "PluginRegistry", "PluginSpec", "registry"]

@@ -1,5 +1,3 @@
-"""Generate test sets through the public API and score the application against them."""
-
 import asyncio
 import json
 from types import SimpleNamespace
@@ -17,8 +15,8 @@ from tallyjudge import (
     create_synthesizer,
     experiment,
 )
-from tallyjudge.core.errors import ClientLoopError, PluginError
-from tallyjudge.core.prompts import PromptInput
+from tallyjudge.sdk.errors import ClientLoopError, PluginError
+from tallyjudge.sdk.prompts import PromptInput
 
 KEY = "synthesis.testset.single_hop"
 HOURS = {"document_id": "library", "chunk_id": "hours", "text": "图书馆周一闭馆。"}

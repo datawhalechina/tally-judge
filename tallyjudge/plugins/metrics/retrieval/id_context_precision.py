@@ -3,13 +3,14 @@
 IdContextPrecisionMetric reports an empty retrieval set as undefined instead of NaN.
 """
 
-from tallyjudge.core.errors import UndefinedScore
-from tallyjudge.core.results import MetricResult
-from tallyjudge.interfaces.metrics import MetricBase, MetricSpec
+from tallyjudge.sdk.errors import UndefinedScore
+from tallyjudge.sdk.metrics import MetricBase, MetricSpec
+from tallyjudge.sdk.plugin import Plugin
+from tallyjudge.sdk.results import MetricResult
 
 
 class IdContextPrecisionMetric(MetricBase):
-    """Fraction of distinct retrieved IDs found among the references."""
+    plugin = Plugin("metric")
 
     spec = MetricSpec(
         "metric.retrieval.id_context_precision",
@@ -22,19 +23,6 @@ class IdContextPrecisionMetric(MetricBase):
     )
 
     async def ascore(
-        self,
-        retrieved_context_ids: list[str | int],
-        reference_context_ids: list[str | int],
-    ) -> MetricResult:
-        """Score the two document ID lists, matching integers by their string form."""
-        return await self.ascore_inputs(
-            {
-                "retrieved_context_ids": retrieved_context_ids,
-                "reference_context_ids": reference_context_ids,
-            }
-        )
-
-    async def _ascore_validated(
         self,
         retrieved_context_ids: list[str | int],
         reference_context_ids: list[str | int],

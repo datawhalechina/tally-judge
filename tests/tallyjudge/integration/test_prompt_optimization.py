@@ -1,12 +1,11 @@
-"""Exercise both optimizers with deterministic, tracked local model responses."""
-
 import json
 
 import pytest
 
 from tallyjudge import Dataset, create_metric, create_optimizer, numeric_metric
-from tallyjudge.core.usage import Usage, record_request
-from tallyjudge.interfaces.models import LanguageModelBase
+from tallyjudge.sdk.gate import record_request
+from tallyjudge.sdk.models import LanguageModelBase
+from tallyjudge.sdk.usage import Usage
 
 
 class ScriptModel(LanguageModelBase):
@@ -240,7 +239,7 @@ def test_dspy_trial_rejects_score_outside_the_objective_range(monkeypatch):
 def test_optimization_report_exposes_resolvable_types():
     from typing import get_type_hints
 
-    from tallyjudge.interfaces.optimization import OptimizationResult
+    from tallyjudge.plugins.optimization.contract import OptimizationResult
 
     assert (
         get_type_hints(OptimizationResult)["holdout"].__name__ == "ExperimentComparison"

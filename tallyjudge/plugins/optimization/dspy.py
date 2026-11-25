@@ -10,10 +10,15 @@ from typing import Any, cast
 
 from pydantic import RootModel
 
-from tallyjudge.core.jobs import validate_output
-from tallyjudge.core.prompts import Message, PromptInput
-from tallyjudge.core.usage import RequestLimitReached
-from tallyjudge.plugins.optimization._experiment import OptimizerBase, Training
+from tallyjudge.plugins.optimization._experiment import (
+    OptimizationConfig,
+    OptimizerBase,
+    Training,
+)
+from tallyjudge.sdk.gate import RequestLimitReached
+from tallyjudge.sdk.metrics import validate_output
+from tallyjudge.sdk.plugin import Plugin
+from tallyjudge.sdk.prompts import Message, PromptInput
 
 
 class _JsonReply(RootModel[dict[str, Any]]):
@@ -21,7 +26,17 @@ class _JsonReply(RootModel[dict[str, Any]]):
 
 
 class DspyOptimizer(OptimizerBase):
-    """Use DSPy's MIPROv2 to select zero-shot instructions under the same transport budget."""
+    plugin = Plugin(
+        "optimization",
+        dependencies={"llm": "language_model"},
+        requires=(
+            "dspy",
+            "optuna",
+        ),
+        extra="dspy",
+    )
+
+    Config = OptimizationConfig
 
     plugin_id = "optimization.prompt.dspy_mipro"
 

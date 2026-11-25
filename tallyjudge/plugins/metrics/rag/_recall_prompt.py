@@ -2,12 +2,11 @@
 
 from functools import cache
 
-from tallyjudge.core.prompts import StructuredPrompt
+from tallyjudge.plugins._prompting import StructuredPrompt
 
 
 @cache
 def prompt():
-    """Build the archived prompt on its first use."""
     from pydantic import BaseModel, Field
 
     class ContextRecallInput(BaseModel):

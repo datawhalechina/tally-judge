@@ -1,5 +1,3 @@
-"""Type-check the user-facing model scoring examples against the public package."""
-
 import json
 import re
 import subprocess
@@ -7,11 +5,34 @@ import sys
 from pathlib import Path
 from textwrap import indent
 
+from tallyjudge.registry import registry
+
+ROOT = Path(__file__).resolve().parents[3]
+
+
+def test_readme_names_every_registered_plugin():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    missing = [spec.id for spec in registry.list() if spec.id not in readme]
+    assert not missing
+
+
+def test_field_conventions_cover_every_metric_input():
+    document = (ROOT / "docs" / "fields.zh-CN.md").read_text(encoding="utf-8")
+    settings = {
+        "metric.custom.numeric": {"criteria": "x"},
+        "metric.custom.categorical": {"criteria": "x", "labels": ["a", "b"]},
+        "metric.conversation.criteria": {"criteria": "x"},
+    }
+    for spec in registry.list(kind="metric"):
+        described = registry.describe(spec.id, **settings.get(spec.id, {}))
+        for name in described.inputs:
+            assert f"| `{name}` |" in document, (spec.id, name)
+        assert f"`{spec.id.removeprefix('metric.')}`" in document, spec.id
+
 
 def test_factory_examples_type_check(tmp_path):
-    root = Path(__file__).resolve().parents[3]
     blocks = re.findall(
-        r"```python\n(.*?)\n```", (root / "README.md").read_text(encoding="utf-8"), re.S
+        r"```python\n(.*?)\n```", (ROOT / "README.md").read_text(encoding="utf-8"), re.S
     )
     faithfulness = next(
         block for block in blocks if "faithfulness = create_metric(" in block
@@ -21,14 +42,13 @@ def test_factory_examples_type_check(tmp_path):
     example = tmp_path / "examples.py"
     example.write_text(
         faithfulness
-        + "\n\nfrom tallyjudge.interfaces.models import LanguageModel\n"
+        + "\n\nfrom tallyjudge.sdk import LanguageModel\n"
         + "async def grade_answer(judge: LanguageModel):\n"
         + indent(grading, "    ")
         + "\n\n"
         + synthesis,
         encoding="utf-8",
     )
-    # The OpenAI SDK is optional. The metric factory and protocol always come from this checkout.
     (tmp_path / "openai.pyi").write_text(
         "from typing import Any\ndef AsyncOpenAI() -> Any: ...\n", encoding="utf-8"
     )
@@ -37,7 +57,7 @@ def test_factory_examples_type_check(tmp_path):
         json.dumps(
             {
                 "include": [example.name],
-                "extraPaths": [str(root)],
+                "extraPaths": [str(ROOT)],
                 "pythonVersion": "3.12",
                 "typeCheckingMode": "basic",
             }

@@ -35,6 +35,8 @@ uv run python tests/tallyjudge/installation/test_installation.py --wheel-dir <�
 ## 改动的写法
 
 - 一次提交围绕一个可解释的行为或边界。改名和评分公式的变化分开提交。
+- 遵守分层。`tallyjudge.sdk` 是插件可以导入的内部模块（合成、优化两类插件另从各自能力包的 `contract` 模块导入契约），它自己不导入包内其他模块；`tallyjudge.engine` 只导入 `sdk`；`tallyjudge.plugins` 只导入 `sdk`，其中优化器因为要驱动评测运行，可以另外导入 `engine`。`sdk` 和 `engine` 里不出现 `user_input` 这类领域字段名。这些规则由 `tests/tallyjudge/contracts/test_layering.py` 检查。
+- 新增内置插件时，在 README 里写出它的插件 ID，`test_readme_examples.py` 会检查每个已注册的 ID 都出现过。
 - 修改公开行为时，同步更新 docstring、行为测试和 README。只写已经实现并验证过的能力，目标接口留在 `plan/`。
 - 新增校验、默认值、异常处理或运行状态时，说明它对应的用户行为和负责的模块。
 - 依赖集中写在根目录 `pyproject.toml`。默认安装保持轻量；插件需要的 SDK 放进可选依赖，并且不在模块顶层导入。

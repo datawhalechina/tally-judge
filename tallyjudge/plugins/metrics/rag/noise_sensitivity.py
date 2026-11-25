@@ -6,22 +6,20 @@ verdict. Relevant support takes precedence over irrelevant support.
 
 from typing import Any, Literal
 
-from tallyjudge.core.errors import ModelOutputError, UndefinedScore
-from tallyjudge.core.prompts import PromptInput
-from tallyjudge.core.results import MetricResult
-from tallyjudge.interfaces.metrics import MetricSpec
-from tallyjudge.interfaces.models import LanguageModel
-from tallyjudge.plugins.metrics.rag._judge import (
-    RagJudge,
-    binary_verdict,
-    required_text_inputs,
-)
+from tallyjudge.plugins.metrics._judge import ModelJudge, binary_verdict
+from tallyjudge.plugins.metrics.rag._inputs import required_text_inputs
 from tallyjudge.plugins.metrics.rag._noise_prompts import (
     nli_statement_prompt,
     output_models,
     statement_generator_prompt,
 )
-from tallyjudge.registry.specs import EmptyConfig
+from tallyjudge.sdk.config import EmptyConfig
+from tallyjudge.sdk.errors import ModelOutputError, UndefinedScore
+from tallyjudge.sdk.metrics import MetricSpec
+from tallyjudge.sdk.models import LanguageModel
+from tallyjudge.sdk.plugin import Plugin
+from tallyjudge.sdk.prompts import PromptInput
+from tallyjudge.sdk.results import MetricResult
 
 type NoiseMode = Literal["relevant", "irrelevant"]
 
@@ -32,8 +30,10 @@ class NoiseSensitivityConfig(EmptyConfig):
     mode: NoiseMode = "relevant"
 
 
-class NoiseSensitivityMetric(RagJudge):
-    """Fraction of all answer statements that are incorrect and supported by the selected passages."""
+class NoiseSensitivityMetric(ModelJudge):
+    plugin = Plugin("metric", dependencies={"llm": "language_model"})
+
+    Config = NoiseSensitivityConfig
 
     spec = MetricSpec(
         "metric.rag.noise_sensitivity",
@@ -48,25 +48,7 @@ class NoiseSensitivityMetric(RagJudge):
         self.mode = NoiseSensitivityConfig(mode=mode).mode
 
     def config_snapshot(self) -> dict[str, Any]:
-        """Include the source of retrieval support selected for this score."""
         return {**super().config_snapshot(), "mode": self.mode}
-
-    async def ascore(
-        self,
-        user_input: str,
-        response: str,
-        reference: str,
-        retrieved_contexts: list[str],
-    ) -> MetricResult:
-        """Score incorrect claims supported by relevant or exclusively irrelevant retrievals."""
-        return await self.ascore_inputs(
-            {
-                "user_input": user_input,
-                "response": response,
-                "reference": reference,
-                "retrieved_contexts": retrieved_contexts,
-            }
-        )
 
     async def _statements(
         self, question: str, text: str, empty_reason: str
@@ -88,7 +70,7 @@ class NoiseSensitivityMetric(RagJudge):
             index for index, item in enumerate(verdicts) if binary_verdict(item.verdict)
         }
 
-    async def _score(
+    async def ascore(
         self,
         user_input: str,
         response: str,

@@ -12,11 +12,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from tallyjudge.core.errors import ModelOutputError
-from tallyjudge.core.prompts import StructuredPrompt
-from tallyjudge.core.usage import UsageSummary, mark_usage_source, run_scoped_score
-from tallyjudge.interfaces.models import EmbeddingModel, LanguageModel
-from tallyjudge.interfaces.synthesis import SourceDocument
+from tallyjudge.plugins._prompting import StructuredPrompt
 from tallyjudge.plugins._vectors import unit_vector
 from tallyjudge.plugins.synthesis._planning_prompts import (
     DEFAULT_RUBRICS,
@@ -37,20 +33,22 @@ from tallyjudge.plugins.synthesis.graph import (
 )
 from tallyjudge.plugins.synthesis.scenarios import EvidenceChunk
 from tallyjudge.plugins.tokenizers import tiktoken_counter
+from tallyjudge.sdk.documents import SourceDocument
+from tallyjudge.sdk.errors import ModelOutputError
+from tallyjudge.sdk.gate import gated
+from tallyjudge.sdk.models import EmbeddingModel, LanguageModel
+from tallyjudge.sdk.usage import UsageSummary
 
 
 class _Extractors:
     def __init__(self, llm: LanguageModel):
-        self.llm = llm
+        self.llm = gated(llm)
         self.usage = UsageSummary()
 
     async def ask[I: BaseModel, O: BaseModel](
         self, template: StructuredPrompt[I, O], data: I
     ) -> O:
-        mark_usage_source("generation", self.llm.plugin_id, self.llm.usage_tracking)
-        reply = await run_scoped_score(
-            self.llm.agenerate(template.render(data), template.output_model)
-        )
+        reply = await self.llm.agenerate(template.render(data), template.output_model)
         self.usage.add(reply.usage)
         self.usage.complete &= self.llm.usage_tracking == "per_request"
         return reply.data
@@ -115,19 +113,18 @@ async def _summary_links(
     embeddings: EmbeddingModel,
     threshold: float,
 ) -> tuple[list[EvidenceRelation], UsageSummary]:
+    embeddings = gated(embeddings)
     vectors: dict[str, list[float]] = {}
     embedding_usage = UsageSummary()
     dimension = None
     for row in rows:
-        mark_usage_source("embedding", embeddings.plugin_id, embeddings.usage_tracking)
-        batch = await run_scoped_score(embeddings.aembed_texts([row["summary"]]))
+        batch = await embeddings.aembed_texts([row["summary"]])
         if len(batch.vectors) != 1:
             raise ModelOutputError("invalid_embedding")
         vector = row["summary_embedding"] = batch.vectors[0]
         if dimension is not None and len(vector) != dimension:
             raise ModelOutputError("invalid_embedding")
         dimension = len(vector)
-        # A zero norm yields no cosine edges in the archive. Persona grouping uses the raw vector.
         if any(vector):
             vectors[row["chunk_id"]] = unit_vector(vector)
         embedding_usage.add(batch.usage)
@@ -227,7 +224,6 @@ async def build_chunk_graph(
     llm: LanguageModel,
     embeddings: EmbeddingModel,
 ) -> EvidenceGraph:
-    """Build the archived prechunked graph, skipping blank pages before indexing their IDs."""
     source = EvidenceGraph(_chunk_records(chunks), ())
     rows = list(source._records.values())
     if len(rows) > 1:
@@ -250,11 +246,6 @@ async def build_document_graph(
     embeddings: EmbeddingModel,
     count_tokens: Callable[[str], int] | None = None,
 ) -> EvidenceGraph:
-    """Build the archived raw-document graph, using cl100k_base for the corpus length bins.
-
-    At least a quarter of documents must exceed 500 tokens or a quarter must fall
-    in the 101–500 bin. Use build_chunk_graph for an already segmented knowledge base.
-    """
     rows = []
     for doc in documents:
         key = (
@@ -288,7 +279,6 @@ async def build_document_graph(
         for row, size in zip(rows, sizes, strict=True)
         if size > (500 if long else 100)
     ]
-    # A single long raw document can yield several entity-bearing children.
     if long or len(rows) > 1:
         _overlap_distance()
     extractor = _Extractors(llm)

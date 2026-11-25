@@ -1,19 +1,17 @@
-"""Run a per-sample function followed by metric bindings in the evaluator's scheduler."""
-
 import json
 from collections.abc import Callable, Sequence
 from typing import Any, TypedDict, Unpack, overload
 
 from tallyjudge.api.evaluator import Evaluator
-from tallyjudge.core.config import ExecutionConfig
-from tallyjudge.core.dataset import Dataset, canonical_json
-from tallyjudge.core.execution import run_sync
-from tallyjudge.core.jobs import RowFunction
-from tallyjudge.core.results import RunCollector, RunResult
-from tallyjudge.interfaces.cache import ScoreCache
-from tallyjudge.interfaces.events import EventSink
-from tallyjudge.interfaces.metrics import Metric, MetricBinding
-from tallyjudge.interfaces.storage import StorageBackend
+from tallyjudge.engine.config import ExecutionConfig
+from tallyjudge.engine.jobs import RowFunction
+from tallyjudge.sdk.cache import ScoreCache
+from tallyjudge.sdk.dataset import Dataset, canonical_json
+from tallyjudge.sdk.events import EventSink
+from tallyjudge.sdk.metrics import Metric, MetricBinding
+from tallyjudge.sdk.results import RunCollector, RunResult
+from tallyjudge.sdk.storage import StorageBackend
+from tallyjudge.sdk.sync import run_sync
 
 
 class _RunOptions(TypedDict, total=False):
@@ -25,12 +23,6 @@ class _RunOptions(TypedDict, total=False):
 
 
 class ExperimentWrapper:
-    """Run a decorated row function per sample, then score its outputs.
-
-    Metrics and evaluator options (config, backend, cache, event sink) are given per
-    call, so one experiment can be scored with different settings.
-    """
-
     def __init__(
         self, function: RowFunction, metadata: dict[str, Any] | None = None
     ) -> None:
@@ -47,7 +39,6 @@ class ExperimentWrapper:
         collector: RunCollector | None = None,
         **options: Unpack[_RunOptions],
     ) -> RunResult:
-        """Run the function once per row, then score its output overlaid on a copy of the input."""
         return await Evaluator(metrics, **options)._arun(
             dataset, collector, self.function, json.loads(self._metadata)
         )
@@ -60,7 +51,6 @@ class ExperimentWrapper:
         collector: RunCollector | None = None,
         **options: Unpack[_RunOptions],
     ) -> RunResult:
-        """Run the same experiment synchronously, outside an active event loop."""
         evaluator = Evaluator(metrics, **options)
         return run_sync(
             lambda: evaluator._arun(
@@ -86,7 +76,6 @@ def experiment(
 def experiment(
     function: RowFunction | None = None, *, metadata: dict[str, Any] | None = None
 ) -> ExperimentWrapper | Callable[[RowFunction], ExperimentWrapper]:
-    """Decorate a row function and persist its JSON prompt/model metadata in each run."""
     if function is None:
         return lambda target: ExperimentWrapper(target, metadata)
     return ExperimentWrapper(function, metadata)

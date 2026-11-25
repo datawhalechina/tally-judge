@@ -1,15 +1,14 @@
-"""End-to-end contracts for the fifteen single-turn RAG metrics."""
-
 import json
 
 import pytest
 
 from tallyjudge import Dataset, Evaluator, create_metric, create_storage_backend
-from tallyjudge.core.errors import PluginError
-from tallyjudge.core.usage import Usage, UsageSummary, record_request
-from tallyjudge.interfaces.models import EmbeddingResult, GenerationResult
 from tallyjudge.plugins.metrics.rag.answer_correctness import AnswerCorrectnessMetric
 from tallyjudge.registry import PluginSpec, registry
+from tallyjudge.sdk.errors import PluginError
+from tallyjudge.sdk.gate import record_request
+from tallyjudge.sdk.models import EmbeddingResult, GenerationResult
+from tallyjudge.sdk.usage import Usage, UsageSummary
 
 AC = "metric.rag.answer_correctness"
 

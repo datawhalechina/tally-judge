@@ -1,5 +1,3 @@
-"""Public raw-document, prechunked and graph generation paths."""
-
 import asyncio
 import json
 import re
@@ -9,18 +7,17 @@ from types import SimpleNamespace
 import pytest
 
 from tallyjudge import (
+    create_importer,
     create_language_model,
     create_metric,
     create_synthesizer,
     experiment,
 )
-from tallyjudge.plugins.adapters.documents import (
-    langchain_documents,
-    llamaindex_documents,
-)
 from tallyjudge.plugins.synthesis.documents import SourceDocument, split_documents
 from tallyjudge.plugins.synthesis.graph import EvidenceGraph, build_graph
 
+langchain_documents = create_importer("importer.langchain.documents").convert
+llamaindex_documents = create_importer("importer.llamaindex.documents").convert
 DOCS = [
     SourceDocument("bio", "Guide: Ada built Kit.", ("Guide", "Kit")),
     SourceDocument("place", "Guide: Kit lives in Rome.", ("Guide", "kit")),
@@ -62,7 +59,7 @@ async def test_prebuilt_graph_owns_sources_and_accepts_archived_answers(client):
     empty = await plugin.arun(EvidenceGraph(tuple(rows), ()), testset_size=1)
     assert empty.generated_count == empty.usage.generation.requests == 0
     with pytest.raises(ValueError, match="unknown chunk"):
-        await plugin.arun(EvidenceGraph(tuple(rows), ((a, "unknown"),)), testset_size=1)
+        EvidenceGraph(tuple(rows), ((a, "unknown"),))
 
 
 def test_document_offsets_and_empty_sources():
@@ -259,7 +256,6 @@ async def test_cancelling_entity_extraction_stops_after_the_inflight_request(
         client=client,
         model="fixture",
     )
-    # Multiple extraction windows exercise cancellation independently of fuzzy matching.
     monkeypatch.setattr(
         "tallyjudge.plugins.synthesis.graph.extraction_windows",
         lambda text, limit: (text[:5], text[5:]),
@@ -396,7 +392,7 @@ def test_graph_detaches_evidence_and_preserves_numeric_text_ids():
 def test_personas_require_the_declared_list_type(client, value):
     from pydantic import ValidationError
 
-    from tallyjudge.core.errors import PluginError
+    from tallyjudge.sdk.errors import PluginError
 
     llm = create_language_model(
         "model.openai_compatible.chat_completions", client=client, model="local"

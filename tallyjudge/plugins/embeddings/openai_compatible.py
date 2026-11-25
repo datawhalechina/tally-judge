@@ -1,15 +1,15 @@
-"""Batched, index-preserving embeddings through a caller-owned async client."""
-
 import math
 from collections.abc import Sequence
 from typing import Any, Literal
 
 from pydantic import Field
 
-from tallyjudge.core.errors import ModelOutputError
-from tallyjudge.core.usage import RequestCall, UsageSummary
-from tallyjudge.interfaces.models import EmbeddingResult
 from tallyjudge.plugins._openai_compatible import ClientConfig, ClientTransport
+from tallyjudge.sdk.errors import ModelOutputError
+from tallyjudge.sdk.gate import RequestCall
+from tallyjudge.sdk.models import EmbeddingResult
+from tallyjudge.sdk.plugin import Plugin
+from tallyjudge.sdk.usage import UsageSummary
 
 
 class EmbeddingConfig(ClientConfig):
@@ -40,13 +40,14 @@ def _ordered_vectors(
 
 
 class OpenAICompatibleEmbeddingModel:
-    """Embed text in ordered batches on the caller's async client."""
+    plugin = Plugin("embedding", dependencies={"client": "client"})
+
+    Config = EmbeddingConfig
 
     plugin_id = "embedding.openai_compatible.embeddings"
     usage_tracking: Literal["per_request"] = "per_request"
 
     def __init__(self, *, client: Any, **settings: Any):
-        """Validate ``EmbeddingConfig`` settings and bind a retry-disabled client view."""
         self.config = EmbeddingConfig(**settings)
         self._transport = ClientTransport(client, self.config, "embedding")
 
@@ -54,7 +55,6 @@ class OpenAICompatibleEmbeddingModel:
         return self.config.model_dump(mode="json")
 
     async def aembed_texts(self, texts: Sequence[str]) -> EmbeddingResult:
-        """Embed texts in input order. Each transport batch owns its request record."""
         if isinstance(texts, (str, bytes)) or not all(
             isinstance(text, str) for text in texts
         ):

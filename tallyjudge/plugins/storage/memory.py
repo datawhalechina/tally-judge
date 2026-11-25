@@ -1,15 +1,15 @@
-"""In-memory storage owned by the caller."""
-
 import json
 from threading import Lock
 
-from tallyjudge.core.dataset import canonical_json
-from tallyjudge.core.results import RunResult
-from tallyjudge.interfaces.storage import storage_snapshot
+from tallyjudge.sdk.dataset import canonical_json
+from tallyjudge.sdk.plugin import Plugin
+from tallyjudge.sdk.results import RunResult
+from tallyjudge.sdk.storage import storage_snapshot
 
 
 class MemoryStorageBackend:
-    """Keep serialized runs in this process; each load returns an independent copy."""
+    plugin = Plugin("storage")
+    plugin_id = "storage.local.memory"
 
     def __init__(self) -> None:
         self._runs: dict[str, str] = {}

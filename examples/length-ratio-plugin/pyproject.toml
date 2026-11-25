@@ -1,0 +1,16 @@
+[project]
+name = "tallyjudge-length-ratio"
+version = "0.1.0"
+description = "Example TallyJudge plugin: response length relative to the reference"
+requires-python = ">=3.12"
+dependencies = ["tallyjudge"]
+
+[project.entry-points."tallyjudge.plugins"]
+length_ratio = "tallyjudge_length_ratio.manifest:PLUGINS"
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["tallyjudge_length_ratio"]

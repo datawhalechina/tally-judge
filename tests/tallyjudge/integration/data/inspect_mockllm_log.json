@@ -1,0 +1,1219 @@
+{
+  "version": 2,
+  "status": "success",
+  "eval": {
+    "eval_id": "NRtkH7c7kJgdj6eveRewwz",
+    "run_id": "CQvxgRMhkuDPZyXVzp6hhv",
+    "created": "2026-11-25T03:00:58+00:00",
+    "task": "task",
+    "task_id": "XJ8XbreN8SqwL8ekXM9hhx",
+    "task_version": 0,
+    "task_display_name": "task",
+    "task_attribs": {},
+    "task_args": {},
+    "task_args_passed": {},
+    "dataset": {
+      "samples": 1,
+      "sample_ids": [
+        "refund-1"
+      ],
+      "shuffled": false
+    },
+    "model": "mockllm/model",
+    "model_generate_config": {},
+    "model_args": {
+      "custom_outputs": [
+        {
+          "model": "mockllm/model",
+          "choices": [
+            {
+              "message": {
+                "id": "BGWooGwHKxp5EVcvFQTBVV",
+                "content": "tool call for tool lookup_order",
+                "source": "generate",
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "for_tool_call_93cd36c2-ad4c-42ac-b7c0-3aecc352320f",
+                    "function": "lookup_order",
+                    "arguments": {
+                      "order_id": "1042"
+                    },
+                    "type": "function"
+                  }
+                ],
+                "model": "mockllm/model"
+              },
+              "stop_reason": "tool_calls"
+            }
+          ],
+          "completion": "tool call for tool lookup_order",
+          "usage": {
+            "input_tokens": 85,
+            "output_tokens": 31,
+            "total_tokens": 116
+          },
+          "input_context_tokens": 85,
+          "time": 3.1976338909953483
+        },
+        {
+          "model": "mockllm/model",
+          "choices": [
+            {
+              "message": {
+                "id": "eodn96JRGvnrNjo6cQ79mv",
+                "content": "tool call for tool lookup_order",
+                "source": "generate",
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "for_tool_call_dadfb8ea-2f8c-4595-be8f-008c936d7a4b",
+                    "function": "lookup_order",
+                    "arguments": {
+                      "order_id": "missing"
+                    },
+                    "type": "function"
+                  }
+                ],
+                "model": "mockllm/model"
+              },
+              "stop_reason": "tool_calls"
+            }
+          ],
+          "completion": "tool call for tool lookup_order",
+          "usage": {
+            "input_tokens": 119,
+            "output_tokens": 31,
+            "total_tokens": 150
+          },
+          "input_context_tokens": 119,
+          "time": 0.00035745900095207617
+        },
+        {
+          "model": "mockllm/model",
+          "choices": [
+            {
+              "message": {
+                "id": "mmnF7BnwhsiMa8wmaaJ5ZP",
+                "content": "Order 1042 was delivered and is refundable.",
+                "source": "generate",
+                "role": "assistant",
+                "model": "mockllm/model"
+              },
+              "stop_reason": "stop"
+            }
+          ],
+          "completion": "Order 1042 was delivered and is refundable.",
+          "usage": {
+            "input_tokens": 138,
+            "output_tokens": 43,
+            "total_tokens": 181
+          },
+          "input_context_tokens": 138,
+          "time": 0.00032508900039829314
+        }
+      ]
+    },
+    "config": {
+      "epochs": 1,
+      "fail_on_error": true,
+      "continue_on_fail": false,
+      "score_on_error": false,
+      "sandbox_cleanup": true,
+      "sandbox_prebuilt": false,
+      "log_samples": true,
+      "log_realtime": true,
+      "log_images": true,
+      "score_display": true
+    },
+    "packages": {
+      "inspect_ai": "0.3.292"
+    },
+    "scorers": [
+      {
+        "name": "includes",
+        "options": {},
+        "metrics": [
+          {
+            "name": "inspect_ai/accuracy",
+            "options": {}
+          },
+          {
+            "name": "inspect_ai/stderr",
+            "options": {}
+          }
+        ],
+        "metadata": {}
+      }
+    ]
+  },
+  "plan": {
+    "name": "plan",
+    "steps": [
+      {
+        "solver": "use_tools",
+        "params": {
+          "tools": [
+            {
+              "type": "tool",
+              "name": "lookup_order",
+              "params": {}
+            }
+          ],
+          "tool_choice": "auto",
+          "append": false
+        },
+        "params_passed": {
+          "tools": [
+            {
+              "type": "tool",
+              "name": "lookup_order",
+              "params": {}
+            }
+          ]
+        }
+      },
+      {
+        "solver": "generate",
+        "params": {
+          "tool_calls": "loop"
+        },
+        "params_passed": {}
+      }
+    ],
+    "config": {}
+  },
+  "results": {
+    "total_samples": 1,
+    "completed_samples": 1,
+    "scores": [
+      {
+        "name": "includes",
+        "scorer": "includes",
+        "scored_samples": 1,
+        "unscored_samples": 0,
+        "params": {},
+        "metrics": {
+          "accuracy": {
+            "name": "accuracy",
+            "value": 1.0,
+            "params": {}
+          },
+          "stderr": {
+            "name": "stderr",
+            "value": 0.0,
+            "params": {}
+          }
+        }
+      }
+    ],
+    "headline": {
+      "scorer": "includes",
+      "score": "includes",
+      "metric": "accuracy"
+    }
+  },
+  "stats": {
+    "started_at": "2026-11-25T03:00:58+00:00",
+    "completed_at": "2026-11-25T03:01:02+00:00",
+    "model_usage": {
+      "mockllm/model": {
+        "input_tokens": 342,
+        "output_tokens": 105,
+        "total_tokens": 447
+      }
+    },
+    "role_usage": {},
+    "connection_limit_history": []
+  },
+  "invalidated": false,
+  "total_samples": 1,
+  "tags": [],
+  "metadata": {},
+  "samples": [
+    {
+      "id": "refund-1",
+      "epoch": 1,
+      "input": "Can order 1042 be refunded?",
+      "target": "refundable",
+      "messages": [
+        {
+          "id": "ewZhbvLRpHADrvdJtaxUEm",
+          "content": "Can order 1042 be refunded?",
+          "source": "input",
+          "role": "user"
+        },
+        {
+          "id": "BGWooGwHKxp5EVcvFQTBVV",
+          "content": "tool call for tool lookup_order",
+          "source": "generate",
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "for_tool_call_93cd36c2-ad4c-42ac-b7c0-3aecc352320f",
+              "function": "lookup_order",
+              "arguments": {
+                "order_id": "1042"
+              },
+              "type": "function"
+            }
+          ],
+          "model": "mockllm/model"
+        },
+        {
+          "id": "iGfofFDUraqkXzqucS4oYV",
+          "content": "{\"status\": \"delivered\", \"refundable\": true}",
+          "role": "tool",
+          "tool_call_id": "for_tool_call_93cd36c2-ad4c-42ac-b7c0-3aecc352320f",
+          "function": "lookup_order"
+        },
+        {
+          "id": "eodn96JRGvnrNjo6cQ79mv",
+          "content": "tool call for tool lookup_order",
+          "source": "generate",
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "for_tool_call_dadfb8ea-2f8c-4595-be8f-008c936d7a4b",
+              "function": "lookup_order",
+              "arguments": {
+                "order_id": "missing"
+              },
+              "type": "function"
+            }
+          ],
+          "model": "mockllm/model"
+        },
+        {
+          "id": "j5VEgkuLaR6YjZUs2QyvAw",
+          "content": "",
+          "role": "tool",
+          "tool_call_id": "for_tool_call_dadfb8ea-2f8c-4595-be8f-008c936d7a4b",
+          "function": "lookup_order",
+          "error": {
+            "type": "file_not_found",
+            "message": "no such order"
+          }
+        },
+        {
+          "id": "mmnF7BnwhsiMa8wmaaJ5ZP",
+          "content": "Order 1042 was delivered and is refundable.",
+          "source": "generate",
+          "role": "assistant",
+          "model": "mockllm/model"
+        }
+      ],
+      "output": {
+        "model": "mockllm/model",
+        "choices": [
+          {
+            "message": {
+              "id": "mmnF7BnwhsiMa8wmaaJ5ZP",
+              "content": "Order 1042 was delivered and is refundable.",
+              "source": "generate",
+              "role": "assistant",
+              "model": "mockllm/model"
+            },
+            "stop_reason": "stop"
+          }
+        ],
+        "completion": "Order 1042 was delivered and is refundable.",
+        "usage": {
+          "input_tokens": 138,
+          "output_tokens": 43,
+          "total_tokens": 181
+        },
+        "input_context_tokens": 138,
+        "time": 0.00032508900039829314
+      },
+      "scores": {
+        "includes": {
+          "value": "C",
+          "answer": "order 1042 was delivered and is refundable.",
+          "explanation": "Order 1042 was delivered and is refundable.",
+          "history": []
+        }
+      },
+      "metadata": {},
+      "store": {
+        "looked_up": "1042"
+      },
+      "events": [
+        {
+          "uuid": "83qYmyS4sUitm9278hDAzA",
+          "span_id": "WW7zqXLiscF2domZWroADE",
+          "timestamp": "2026-11-25T03:00:58.878287+00:00",
+          "working_start": 33022.333162766,
+          "event": "span_begin",
+          "id": "WW7zqXLiscF2domZWroADE",
+          "type": "init",
+          "name": "init"
+        },
+        {
+          "uuid": "gyHJogTAvjzjsBDxJ82K4v",
+          "span_id": "WW7zqXLiscF2domZWroADE",
+          "timestamp": "2026-11-25T03:00:58.879680+00:00",
+          "working_start": 33022.334556558,
+          "event": "sample_init",
+          "sample": {
+            "input": "Can order 1042 be refunded?",
+            "target": "refundable",
+            "id": "refund-1"
+          },
+          "state": {
+            "messages": [
+              {
+                "id": "ewZhbvLRpHADrvdJtaxUEm",
+                "content": "Can order 1042 be refunded?",
+                "source": "input",
+                "role": "user"
+              }
+            ],
+            "tools": [],
+            "tool_choice": null,
+            "store": {},
+            "output": {
+              "model": "mockllm/model",
+              "choices": [],
+              "completion": ""
+            },
+            "completed": false,
+            "metadata": {}
+          }
+        },
+        {
+          "uuid": "Wg3ZknXsrACxqGK2rSo6To",
+          "span_id": "WW7zqXLiscF2domZWroADE",
+          "timestamp": "2026-11-25T03:00:58.880167+00:00",
+          "working_start": 33022.33504142,
+          "event": "span_end",
+          "id": "WW7zqXLiscF2domZWroADE"
+        },
+        {
+          "uuid": "Auix2fCGbemgwbe7eAyXTb",
+          "span_id": "btfiES2D6ffPdvyCiwjWXJ",
+          "timestamp": "2026-11-25T03:00:58.881522+00:00",
+          "working_start": 0.0008340060012415051,
+          "event": "span_begin",
+          "id": "btfiES2D6ffPdvyCiwjWXJ",
+          "type": "solvers",
+          "name": "solvers"
+        },
+        {
+          "uuid": "WArACQmzeFd2EHquHDo8eT",
+          "span_id": "WFANdEyu8np2ihaKScPMQ7",
+          "timestamp": "2026-11-25T03:00:58.883166+00:00",
+          "working_start": 0.002477328998793382,
+          "event": "span_begin",
+          "id": "WFANdEyu8np2ihaKScPMQ7",
+          "parent_id": "btfiES2D6ffPdvyCiwjWXJ",
+          "type": "solver",
+          "name": "use_tools"
+        },
+        {
+          "uuid": "eRWrbtthpgMwv73aWTe9My",
+          "span_id": "WFANdEyu8np2ihaKScPMQ7",
+          "timestamp": "2026-11-25T03:00:58.885538+00:00",
+          "working_start": 0.004849117998674046,
+          "event": "state",
+          "changes": [
+            {
+              "op": "add",
+              "path": "/tools/0",
+              "value": {
+                "name": "lookup_order",
+                "description": "Look up an order.",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "order_id": {
+                      "type": "string",
+                      "description": "The order number."
+                    }
+                  },
+                  "required": [
+                    "order_id"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            {
+              "op": "replace",
+              "path": "/tool_choice",
+              "value": "auto"
+            }
+          ]
+        },
+        {
+          "uuid": "W3LLZ64PPzFbBY5y43QeA5",
+          "span_id": "WFANdEyu8np2ihaKScPMQ7",
+          "timestamp": "2026-11-25T03:00:58.885771+00:00",
+          "working_start": 0.005081038994831033,
+          "event": "span_end",
+          "id": "WFANdEyu8np2ihaKScPMQ7"
+        },
+        {
+          "uuid": "gQqf2HZpVsF8hGUnUQmsxj",
+          "span_id": "Dt2946LvcLtWbwoVK6URsF",
+          "timestamp": "2026-11-25T03:00:58.885913+00:00",
+          "working_start": 0.005223119995207526,
+          "event": "span_begin",
+          "id": "Dt2946LvcLtWbwoVK6URsF",
+          "parent_id": "btfiES2D6ffPdvyCiwjWXJ",
+          "type": "solver",
+          "name": "generate"
+        },
+        {
+          "uuid": "CUWYaGDBTDkLDFx55Z4gTc",
+          "span_id": "Dt2946LvcLtWbwoVK6URsF",
+          "timestamp": "2026-11-25T03:00:58.887093+00:00",
+          "working_start": 0.006403983999916818,
+          "event": "model",
+          "model": "mockllm/model",
+          "origin": "agent",
+          "input": [],
+          "input_refs": [
+            [
+              0,
+              1
+            ]
+          ],
+          "tools": [
+            {
+              "name": "lookup_order",
+              "description": "Look up an order.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "order_id": {
+                    "type": "string",
+                    "description": "The order number."
+                  }
+                },
+                "required": [
+                  "order_id"
+                ],
+                "additionalProperties": false
+              }
+            }
+          ],
+          "tool_choice": "auto",
+          "config": {},
+          "output": {
+            "model": "mockllm/model",
+            "choices": [
+              {
+                "message": {
+                  "id": "BGWooGwHKxp5EVcvFQTBVV",
+                  "content": "tool call for tool lookup_order",
+                  "source": "generate",
+                  "role": "assistant",
+                  "tool_calls": [
+                    {
+                      "id": "for_tool_call_93cd36c2-ad4c-42ac-b7c0-3aecc352320f",
+                      "function": "lookup_order",
+                      "arguments": {
+                        "order_id": "1042"
+                      },
+                      "type": "function"
+                    }
+                  ],
+                  "model": "mockllm/model"
+                },
+                "stop_reason": "tool_calls"
+              }
+            ],
+            "completion": "tool call for tool lookup_order",
+            "usage": {
+              "input_tokens": 85,
+              "output_tokens": 31,
+              "total_tokens": 116
+            },
+            "input_context_tokens": 85,
+            "time": 3.1976338909953483
+          },
+          "call": {
+            "request": {
+              "model": "model"
+            },
+            "response": {
+              "content": "tool call for tool lookup_order"
+            },
+            "call_refs": [
+              [
+                0,
+                1
+              ]
+            ],
+            "call_key": "messages"
+          },
+          "completed": "2026-11-25T03:01:02.313480+00:00",
+          "working_time": 3.1976338909953483
+        },
+        {
+          "uuid": "iZQYwWFVFb7W8QkN8QhTpz",
+          "span_id": "YZgsTiizeuzHGTV528aRfx",
+          "timestamp": "2026-11-25T03:01:02.407688+00:00",
+          "working_start": 3.5268643710005563,
+          "event": "span_begin",
+          "id": "YZgsTiizeuzHGTV528aRfx",
+          "parent_id": "Dt2946LvcLtWbwoVK6URsF",
+          "type": "tool",
+          "name": "lookup_order"
+        },
+        {
+          "uuid": "2toSnHA38mwuf2kbRdNxoG",
+          "span_id": "Dt2946LvcLtWbwoVK6URsF",
+          "timestamp": "2026-11-25T03:01:02.315543+00:00",
+          "working_start": 3.43471882599988,
+          "event": "tool",
+          "type": "function",
+          "id": "for_tool_call_93cd36c2-ad4c-42ac-b7c0-3aecc352320f",
+          "execution_id": "jNsJnaFyz7vqATWkMi75mz",
+          "function": "lookup_order",
+          "arguments": {
+            "order_id": "1042"
+          },
+          "result": "{\"status\": \"delivered\", \"refundable\": true}",
+          "events": [],
+          "completed": "2026-11-25T03:01:02.414348+00:00",
+          "working_time": 0.0988328579987865,
+          "message_id": "iGfofFDUraqkXzqucS4oYV",
+          "call_message_id": "BGWooGwHKxp5EVcvFQTBVV"
+        },
+        {
+          "uuid": "AcRvBWCUkqtqxRNj3e2T33",
+          "span_id": "YZgsTiizeuzHGTV528aRfx",
+          "timestamp": "2026-11-25T03:01:02.410866+00:00",
+          "working_start": 3.5300418410042766,
+          "event": "store",
+          "changes": [
+            {
+              "op": "add",
+              "path": "/looked_up",
+              "value": "1042"
+            }
+          ]
+        },
+        {
+          "uuid": "CnD65ELxLvJq4S62qFeFL7",
+          "span_id": "YZgsTiizeuzHGTV528aRfx",
+          "timestamp": "2026-11-25T03:01:02.412063+00:00",
+          "working_start": 3.531246311002178,
+          "event": "span_end",
+          "id": "YZgsTiizeuzHGTV528aRfx"
+        },
+        {
+          "uuid": "G3ez9t8j48wEVVhe3rUPiQ",
+          "span_id": "Dt2946LvcLtWbwoVK6URsF",
+          "timestamp": "2026-11-25T03:01:02.415944+00:00",
+          "working_start": 3.5351180209981976,
+          "event": "model",
+          "model": "mockllm/model",
+          "origin": "agent",
+          "input": [],
+          "input_refs": [
+            [
+              0,
+              3
+            ]
+          ],
+          "tools": [
+            {
+              "name": "lookup_order",
+              "description": "Look up an order.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "order_id": {
+                    "type": "string",
+                    "description": "The order number."
+                  }
+                },
+                "required": [
+                  "order_id"
+                ],
+                "additionalProperties": false
+              }
+            }
+          ],
+          "tool_choice": "auto",
+          "config": {},
+          "output": {
+            "model": "mockllm/model",
+            "choices": [
+              {
+                "message": {
+                  "id": "eodn96JRGvnrNjo6cQ79mv",
+                  "content": "tool call for tool lookup_order",
+                  "source": "generate",
+                  "role": "assistant",
+                  "tool_calls": [
+                    {
+                      "id": "for_tool_call_dadfb8ea-2f8c-4595-be8f-008c936d7a4b",
+                      "function": "lookup_order",
+                      "arguments": {
+                        "order_id": "missing"
+                      },
+                      "type": "function"
+                    }
+                  ],
+                  "model": "mockllm/model"
+                },
+                "stop_reason": "tool_calls"
+              }
+            ],
+            "completion": "tool call for tool lookup_order",
+            "usage": {
+              "input_tokens": 119,
+              "output_tokens": 31,
+              "total_tokens": 150
+            },
+            "input_context_tokens": 119,
+            "time": 0.00035745900095207617
+          },
+          "call": {
+            "request": {
+              "model": "model"
+            },
+            "response": {
+              "content": "tool call for tool lookup_order"
+            },
+            "call_refs": [
+              [
+                0,
+                3
+              ]
+            ],
+            "call_key": "messages"
+          },
+          "completed": "2026-11-25T03:01:02.420339+00:00",
+          "working_time": 0.00035745900095207617
+        },
+        {
+          "uuid": "3CGA69zVCEE6RXjRghYqoD",
+          "span_id": "duzJwKs9QaQoAMAKb3UZ9W",
+          "timestamp": "2026-11-25T03:01:02.421410+00:00",
+          "working_start": 3.540523726005631,
+          "event": "span_begin",
+          "id": "duzJwKs9QaQoAMAKb3UZ9W",
+          "parent_id": "Dt2946LvcLtWbwoVK6URsF",
+          "type": "tool",
+          "name": "lookup_order"
+        },
+        {
+          "uuid": "dHAcwB6fi7GiupoWJGYhyn",
+          "span_id": "Dt2946LvcLtWbwoVK6URsF",
+          "timestamp": "2026-11-25T03:01:02.420806+00:00",
+          "working_start": 3.5399197389997425,
+          "event": "tool",
+          "type": "function",
+          "id": "for_tool_call_dadfb8ea-2f8c-4595-be8f-008c936d7a4b",
+          "execution_id": "Q3DrjU2RVPCF79mmAxYZkw",
+          "function": "lookup_order",
+          "arguments": {
+            "order_id": "missing"
+          },
+          "result": "",
+          "error": {
+            "type": "file_not_found",
+            "message": "no such order"
+          },
+          "events": [],
+          "completed": "2026-11-25T03:01:02.423686+00:00",
+          "working_time": 0.002894482997362502,
+          "message_id": "j5VEgkuLaR6YjZUs2QyvAw",
+          "call_message_id": "eodn96JRGvnrNjo6cQ79mv"
+        },
+        {
+          "uuid": "J7WcykBCZTb45HCGeNM5EU",
+          "span_id": "duzJwKs9QaQoAMAKb3UZ9W",
+          "timestamp": "2026-11-25T03:01:02.421853+00:00",
+          "working_start": 3.5409677810021094,
+          "event": "span_end",
+          "id": "duzJwKs9QaQoAMAKb3UZ9W"
+        },
+        {
+          "uuid": "XmG7ZAHanNe7kTx2DW5tdj",
+          "span_id": "Dt2946LvcLtWbwoVK6URsF",
+          "timestamp": "2026-11-25T03:01:02.424262+00:00",
+          "working_start": 3.543376410001656,
+          "event": "model",
+          "model": "mockllm/model",
+          "origin": "agent",
+          "input": [],
+          "input_refs": [
+            [
+              0,
+              5
+            ]
+          ],
+          "tools": [
+            {
+              "name": "lookup_order",
+              "description": "Look up an order.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "order_id": {
+                    "type": "string",
+                    "description": "The order number."
+                  }
+                },
+                "required": [
+                  "order_id"
+                ],
+                "additionalProperties": false
+              }
+            }
+          ],
+          "tool_choice": "auto",
+          "config": {},
+          "output": {
+            "model": "mockllm/model",
+            "choices": [
+              {
+                "message": {
+                  "id": "mmnF7BnwhsiMa8wmaaJ5ZP",
+                  "content": "Order 1042 was delivered and is refundable.",
+                  "source": "generate",
+                  "role": "assistant",
+                  "model": "mockllm/model"
+                },
+                "stop_reason": "stop"
+              }
+            ],
+            "completion": "Order 1042 was delivered and is refundable.",
+            "usage": {
+              "input_tokens": 138,
+              "output_tokens": 43,
+              "total_tokens": 181
+            },
+            "input_context_tokens": 138,
+            "time": 0.00032508900039829314
+          },
+          "call": {
+            "request": {
+              "model": "model"
+            },
+            "response": {
+              "content": "Order 1042 was delivered and is refundable."
+            },
+            "call_refs": [
+              [
+                0,
+                5
+              ]
+            ],
+            "call_key": "messages"
+          },
+          "completed": "2026-11-25T03:01:02.427022+00:00",
+          "working_time": 0.00032508900039829314
+        },
+        {
+          "uuid": "54CzNp35wPgX6bZECxQndE",
+          "span_id": "Dt2946LvcLtWbwoVK6URsF",
+          "timestamp": "2026-11-25T03:01:02.427587+00:00",
+          "working_start": 3.546658799998113,
+          "event": "state",
+          "changes": [
+            {
+              "op": "add",
+              "path": "/messages/1",
+              "value": {
+                "id": "BGWooGwHKxp5EVcvFQTBVV",
+                "content": "tool call for tool lookup_order",
+                "source": "generate",
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "for_tool_call_93cd36c2-ad4c-42ac-b7c0-3aecc352320f",
+                    "function": "lookup_order",
+                    "arguments": {
+                      "order_id": "1042"
+                    },
+                    "type": "function"
+                  }
+                ],
+                "model": "mockllm/model"
+              }
+            },
+            {
+              "op": "add",
+              "path": "/messages/2",
+              "value": {
+                "id": "iGfofFDUraqkXzqucS4oYV",
+                "content": "{\"status\": \"delivered\", \"refundable\": true}",
+                "role": "tool",
+                "tool_call_id": "for_tool_call_93cd36c2-ad4c-42ac-b7c0-3aecc352320f",
+                "function": "lookup_order"
+              }
+            },
+            {
+              "op": "add",
+              "path": "/messages/3",
+              "value": {
+                "id": "eodn96JRGvnrNjo6cQ79mv",
+                "content": "tool call for tool lookup_order",
+                "source": "generate",
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "for_tool_call_dadfb8ea-2f8c-4595-be8f-008c936d7a4b",
+                    "function": "lookup_order",
+                    "arguments": {
+                      "order_id": "missing"
+                    },
+                    "type": "function"
+                  }
+                ],
+                "model": "mockllm/model"
+              }
+            },
+            {
+              "op": "add",
+              "path": "/messages/4",
+              "value": {
+                "id": "j5VEgkuLaR6YjZUs2QyvAw",
+                "content": "",
+                "role": "tool",
+                "tool_call_id": "for_tool_call_dadfb8ea-2f8c-4595-be8f-008c936d7a4b",
+                "function": "lookup_order",
+                "error": {
+                  "type": "file_not_found",
+                  "message": "no such order"
+                }
+              }
+            },
+            {
+              "op": "add",
+              "path": "/messages/5",
+              "value": {
+                "id": "mmnF7BnwhsiMa8wmaaJ5ZP",
+                "content": "Order 1042 was delivered and is refundable.",
+                "source": "generate",
+                "role": "assistant",
+                "model": "mockllm/model"
+              }
+            },
+            {
+              "op": "add",
+              "path": "/store/looked_up",
+              "value": "1042"
+            },
+            {
+              "op": "add",
+              "path": "/output/usage",
+              "value": {
+                "input_tokens": 138,
+                "output_tokens": 43,
+                "total_tokens": 181
+              }
+            },
+            {
+              "op": "add",
+              "path": "/output/input_context_tokens",
+              "value": 138
+            },
+            {
+              "op": "add",
+              "path": "/output/time",
+              "value": 0.00032508900039829314
+            },
+            {
+              "op": "add",
+              "path": "/output/choices/0",
+              "value": {
+                "message": {
+                  "id": "mmnF7BnwhsiMa8wmaaJ5ZP",
+                  "content": "Order 1042 was delivered and is refundable.",
+                  "source": "generate",
+                  "role": "assistant",
+                  "model": "mockllm/model"
+                },
+                "stop_reason": "stop"
+              }
+            },
+            {
+              "op": "replace",
+              "path": "/output/completion",
+              "value": "Order 1042 was delivered and is refundable.",
+              "replaced": ""
+            }
+          ]
+        },
+        {
+          "uuid": "AxcnBAZN2JWWNSZbi6GHnK",
+          "span_id": "Dt2946LvcLtWbwoVK6URsF",
+          "timestamp": "2026-11-25T03:01:02.428028+00:00",
+          "working_start": 3.547098755996558,
+          "event": "store",
+          "changes": [
+            {
+              "op": "add",
+              "path": "/looked_up",
+              "value": "1042"
+            }
+          ]
+        },
+        {
+          "uuid": "eeYf3itwAUx3msFUxJvwJs",
+          "span_id": "Dt2946LvcLtWbwoVK6URsF",
+          "timestamp": "2026-11-25T03:01:02.428202+00:00",
+          "working_start": 3.5472720050020143,
+          "event": "span_end",
+          "id": "Dt2946LvcLtWbwoVK6URsF"
+        },
+        {
+          "uuid": "W7HridmvkgVUugv8RiWBuq",
+          "span_id": "btfiES2D6ffPdvyCiwjWXJ",
+          "timestamp": "2026-11-25T03:01:02.428353+00:00",
+          "working_start": 3.5474210789980134,
+          "event": "store",
+          "changes": [
+            {
+              "op": "add",
+              "path": "/looked_up",
+              "value": "1042"
+            }
+          ]
+        },
+        {
+          "uuid": "WBpJh4anSZEaE2surfXZEB",
+          "span_id": "btfiES2D6ffPdvyCiwjWXJ",
+          "timestamp": "2026-11-25T03:01:02.428459+00:00",
+          "working_start": 3.5475286939981743,
+          "event": "span_end",
+          "id": "btfiES2D6ffPdvyCiwjWXJ"
+        },
+        {
+          "uuid": "Fw8pmCB7TUPSbuxLEqezX4",
+          "span_id": "RrYAGKxJZPXM6ropcBcppm",
+          "timestamp": "2026-11-25T03:01:02.429054+00:00",
+          "working_start": 3.548125257999345,
+          "event": "span_begin",
+          "id": "RrYAGKxJZPXM6ropcBcppm",
+          "type": "scorers",
+          "name": "scorers"
+        },
+        {
+          "uuid": "XerJYNixHtEU2d9SBKDwiH",
+          "span_id": "EnDZmZ3wwQLUeu462HxVGP",
+          "timestamp": "2026-11-25T03:01:02.429299+00:00",
+          "working_start": 3.5483684610007913,
+          "event": "span_begin",
+          "id": "EnDZmZ3wwQLUeu462HxVGP",
+          "parent_id": "RrYAGKxJZPXM6ropcBcppm",
+          "type": "scorer",
+          "name": "includes"
+        },
+        {
+          "uuid": "nv9ikEEaXST8oioGzbnEyu",
+          "span_id": "EnDZmZ3wwQLUeu462HxVGP",
+          "timestamp": "2026-11-25T03:01:02.430332+00:00",
+          "working_start": 3.5494026960004703,
+          "event": "score",
+          "score": {
+            "value": "C",
+            "answer": "order 1042 was delivered and is refundable.",
+            "explanation": "Order 1042 was delivered and is refundable.",
+            "history": []
+          },
+          "target": "refundable",
+          "intermediate": false,
+          "scorer": "includes",
+          "scorer_args": {},
+          "model_usage": {
+            "mockllm/model": {
+              "input_tokens": 342,
+              "output_tokens": 105,
+              "total_tokens": 447
+            }
+          }
+        },
+        {
+          "uuid": "KM9NhH9NRA43zCenoAxGrH",
+          "span_id": "EnDZmZ3wwQLUeu462HxVGP",
+          "timestamp": "2026-11-25T03:01:02.430656+00:00",
+          "working_start": 3.5497261810014606,
+          "event": "span_end",
+          "id": "EnDZmZ3wwQLUeu462HxVGP"
+        },
+        {
+          "uuid": "GxtM4FV8uoG3XHwGXy7DBT",
+          "span_id": "RrYAGKxJZPXM6ropcBcppm",
+          "timestamp": "2026-11-25T03:01:02.430799+00:00",
+          "working_start": 3.549868110996613,
+          "event": "span_end",
+          "id": "RrYAGKxJZPXM6ropcBcppm"
+        }
+      ],
+      "model_usage": {
+        "mockllm/model": {
+          "input_tokens": 342,
+          "output_tokens": 105,
+          "total_tokens": 447
+        }
+      },
+      "role_usage": {},
+      "started_at": "2026-11-25T03:00:58.880694+00:00",
+      "completed_at": "2026-11-25T03:01:02.431272+00:00",
+      "total_time": 3.551,
+      "working_time": 3.55,
+      "uuid": "Yhcd7vV7qaMAfzxvXbVtTD",
+      "error_retries": [],
+      "attachments": {},
+      "events_data": {
+        "messages": [
+          {
+            "id": "ewZhbvLRpHADrvdJtaxUEm",
+            "content": "Can order 1042 be refunded?",
+            "source": "input",
+            "role": "user"
+          },
+          {
+            "id": "BGWooGwHKxp5EVcvFQTBVV",
+            "content": "tool call for tool lookup_order",
+            "source": "generate",
+            "role": "assistant",
+            "tool_calls": [
+              {
+                "id": "for_tool_call_93cd36c2-ad4c-42ac-b7c0-3aecc352320f",
+                "function": "lookup_order",
+                "arguments": {
+                  "order_id": "1042"
+                },
+                "type": "function"
+              }
+            ],
+            "model": "mockllm/model"
+          },
+          {
+            "id": "iGfofFDUraqkXzqucS4oYV",
+            "content": "{\"status\": \"delivered\", \"refundable\": true}",
+            "role": "tool",
+            "tool_call_id": "for_tool_call_93cd36c2-ad4c-42ac-b7c0-3aecc352320f",
+            "function": "lookup_order"
+          },
+          {
+            "id": "eodn96JRGvnrNjo6cQ79mv",
+            "content": "tool call for tool lookup_order",
+            "source": "generate",
+            "role": "assistant",
+            "tool_calls": [
+              {
+                "id": "for_tool_call_dadfb8ea-2f8c-4595-be8f-008c936d7a4b",
+                "function": "lookup_order",
+                "arguments": {
+                  "order_id": "missing"
+                },
+                "type": "function"
+              }
+            ],
+            "model": "mockllm/model"
+          },
+          {
+            "id": "j5VEgkuLaR6YjZUs2QyvAw",
+            "content": "",
+            "role": "tool",
+            "tool_call_id": "for_tool_call_dadfb8ea-2f8c-4595-be8f-008c936d7a4b",
+            "function": "lookup_order",
+            "error": {
+              "type": "file_not_found",
+              "message": "no such order"
+            }
+          }
+        ],
+        "calls": [
+          {
+            "id": "ewZhbvLRpHADrvdJtaxUEm",
+            "content": "Can order 1042 be refunded?",
+            "source": "input",
+            "metadata": null,
+            "role": "user",
+            "tool_call_id": null
+          },
+          {
+            "id": "BGWooGwHKxp5EVcvFQTBVV",
+            "content": "tool call for tool lookup_order",
+            "source": "generate",
+            "metadata": null,
+            "role": "assistant",
+            "tool_calls": [
+              {
+                "id": "for_tool_call_93cd36c2-ad4c-42ac-b7c0-3aecc352320f",
+                "function": "lookup_order",
+                "arguments": {
+                  "order_id": "1042"
+                },
+                "parse_error": null,
+                "view": null,
+                "type": "function"
+              }
+            ],
+            "model": "mockllm/model"
+          },
+          {
+            "id": "iGfofFDUraqkXzqucS4oYV",
+            "content": "{\"status\": \"delivered\", \"refundable\": true}",
+            "source": null,
+            "metadata": null,
+            "role": "tool",
+            "tool_call_id": "for_tool_call_93cd36c2-ad4c-42ac-b7c0-3aecc352320f",
+            "function": "lookup_order",
+            "error": null
+          },
+          {
+            "id": "eodn96JRGvnrNjo6cQ79mv",
+            "content": "tool call for tool lookup_order",
+            "source": "generate",
+            "metadata": null,
+            "role": "assistant",
+            "tool_calls": [
+              {
+                "id": "for_tool_call_dadfb8ea-2f8c-4595-be8f-008c936d7a4b",
+                "function": "lookup_order",
+                "arguments": {
+                  "order_id": "missing"
+                },
+                "parse_error": null,
+                "view": null,
+                "type": "function"
+              }
+            ],
+            "model": "mockllm/model"
+          },
+          {
+            "id": "j5VEgkuLaR6YjZUs2QyvAw",
+            "content": "",
+            "source": null,
+            "metadata": null,
+            "role": "tool",
+            "tool_call_id": "for_tool_call_dadfb8ea-2f8c-4595-be8f-008c936d7a4b",
+            "function": "lookup_order",
+            "error": {
+              "type": "file_not_found",
+              "message": "no such order"
+            }
+          }
+        ]
+      },
+      "turn_count": 3
+    }
+  ],
+  "reductions": [
+    {
+      "scorer": "includes",
+      "samples": [
+        {
+          "value": 1.0,
+          "answer": "order 1042 was delivered and is refundable.",
+          "explanation": "Order 1042 was delivered and is refundable.",
+          "history": [],
+          "sample_id": "refund-1"
+        }
+      ]
+    }
+  ]
+}

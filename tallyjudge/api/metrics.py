@@ -1,10 +1,8 @@
-"""Public decorators for constructible function metrics."""
-
 import inspect
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any, get_type_hints
 
-from tallyjudge.interfaces.metrics import MetricSpec
+from tallyjudge.sdk.metrics import MetricSpec
 
 if TYPE_CHECKING:
     from tallyjudge.plugins.metrics.custom import FunctionMetric
@@ -53,19 +51,16 @@ def numeric_metric(
     revision: str,
     value_range: tuple[float | None, float | None] = (None, None),
 ) -> Callable[[Callable[..., Any]], FunctionMetricFactory]:
-    """Declare a numeric function metric with a finite score and optional bounds."""
     return _decorator(plugin_id, revision, value_range=value_range)
 
 
 def categorical_metric(
     plugin_id: str, *, revision: str, labels: Sequence[str]
 ) -> Callable[[Callable[..., Any]], FunctionMetricFactory]:
-    """Declare a string-valued function metric with a fixed set of labels."""
     return _decorator(plugin_id, revision, output_type=str, labels=tuple(labels))
 
 
 def ranking_metric(
     plugin_id: str, *, revision: str, length: int
 ) -> Callable[[Callable[..., Any]], FunctionMetricFactory]:
-    """Declare an ordered JSON-list metric with a fixed output length."""
     return _decorator(plugin_id, revision, output_type=list, ranking_length=length)

@@ -6,28 +6,29 @@ planning usage let the same generated dataset feed paired TallyJudge experiments
 
 import asyncio
 from collections.abc import Iterable, Mapping
-from hashlib import sha256
 from random import Random
 from typing import Any
 
 from pydantic import Field
 
-from tallyjudge.core.dataset import canonical_json
-from tallyjudge.core.execution import run_sync
-from tallyjudge.interfaces.models import EmbeddingModel, LanguageModel
-from tallyjudge.interfaces.synthesis import (
-    SynthesisCandidate,
-    SynthesisCollector,
-    SynthesisResult,
-)
 from tallyjudge.plugins.synthesis._evidence import (
     SamplingConfig,
     cancellable,
     generate_candidate,
 )
 from tallyjudge.plugins.synthesis._strategies import Scenario, ScenarioPlanner
+from tallyjudge.plugins.synthesis.contract import (
+    SynthesisCandidate,
+    SynthesisCollector,
+    SynthesisResult,
+    SynthesizerBase,
+)
 from tallyjudge.plugins.synthesis.graph import EvidenceGraph
 from tallyjudge.plugins.synthesis.transforms import build_chunk_graph
+from tallyjudge.sdk.dataset import canonical_sha256
+from tallyjudge.sdk.gate import gated
+from tallyjudge.sdk.models import EmbeddingModel, LanguageModel, model_snapshot
+from tallyjudge.sdk.plugin import Plugin
 
 
 class RagTestsetConfig(SamplingConfig):
@@ -37,13 +38,14 @@ class RagTestsetConfig(SamplingConfig):
     llm_context: str | None = None
 
 
-class RagTestsetSynthesizer:
-    """Generate single-hop specific, multi-hop abstract and multi-hop specific cases.
+class RagTestsetSynthesizer(SynthesizerBase):
+    plugin = Plugin(
+        "synthesis",
+        dependencies={"llm": "language_model"},
+        optional_dependencies={"embeddings": "embedding_model"},
+    )
 
-    Supply a typed EvidenceGraph, or inject embeddings to build one from prechunked
-    records. Each eligible strategy rounds its quota up independently. Save the
-    resulting dataset when comparing retrievers on exactly the same questions.
-    """
+    Config = RagTestsetConfig
 
     plugin_id = "synthesis.testset.rag"
     prompt_revision = "1"
@@ -55,22 +57,18 @@ class RagTestsetSynthesizer:
         embeddings: EmbeddingModel | None = None,
         **settings: Any,
     ):
-        self.llm = llm
-        self.embeddings = embeddings
+        self.llm = gated(llm)
+        self.embeddings = embeddings and gated(embeddings)
         self.config = RagTestsetConfig(**settings)
 
     def config_snapshot(self) -> dict[str, Any]:
-        """Identify planning settings, model configuration and prompt revision."""
         settings = self.config.model_dump()
         settings.update(
             prompt_revision=self.prompt_revision,
-            llm={"plugin_id": self.llm.plugin_id, "config": self.llm.config_snapshot()},
+            llm=model_snapshot(self.llm),
         )
         if self.embeddings is not None:
-            settings["embeddings"] = {
-                "plugin_id": self.embeddings.plugin_id,
-                "config": self.embeddings.config_snapshot(),
-            }
+            settings["embeddings"] = model_snapshot(self.embeddings)
         return settings
 
     async def _plan(
@@ -100,7 +98,6 @@ class RagTestsetSynthesizer:
         testset_size: int,
         collector: SynthesisCollector | None = None,
     ) -> SynthesisResult:
-        """Plan eligible scenarios, generate references, and retain planning and per-case usage."""
         if type(testset_size) is not int or testset_size < 0:
             raise ValueError("testset_size must be a nonnegative integer")
         result = SynthesisResult(self.plugin_id, self.config_snapshot(), testset_size)
@@ -111,7 +108,7 @@ class RagTestsetSynthesizer:
             with progress.plan():
                 scenarios = await cancellable(self._plan(chunks, testset_size))
             for ordinal, (strategy, scenario) in enumerate(scenarios):
-                identity = canonical_json(
+                case_id = canonical_sha256(
                     [
                         self.plugin_id,
                         result.config_snapshot,
@@ -123,7 +120,7 @@ class RagTestsetSynthesizer:
                 ids = tuple(node.chunk_id for node in scenario.nodes)
                 documents = tuple(node.document_id for node in scenario.nodes)
                 candidate = SynthesisCandidate(
-                    sha256(identity.encode()).hexdigest(),
+                    case_id,
                     ids[0],
                     documents[0],
                     evidence_ids=ids,
@@ -139,16 +136,3 @@ class RagTestsetSynthesizer:
                     if candidate.record is not None:
                         candidate.record["synthesizer_name"] = strategy
         return result
-
-    def run(
-        self,
-        chunks: Iterable[Mapping[str, Any]],
-        *,
-        testset_size: int,
-        collector: SynthesisCollector | None = None,
-    ) -> SynthesisResult:
-        """Run from synchronous code outside an active event loop."""
-        return run_sync(
-            lambda: self.arun(chunks, testset_size=testset_size, collector=collector),
-            "arun",
-        )

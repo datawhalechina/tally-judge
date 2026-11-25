@@ -18,8 +18,8 @@ from tallyjudge import (
     create_metric,
     create_storage_backend,
 )
-from tallyjudge.core.errors import PluginError
 from tallyjudge.plugins.metrics.text.string_similarity import DistanceMeasure
+from tallyjudge.sdk.errors import PluginError
 
 pytest.importorskip("rapidfuzz")
 

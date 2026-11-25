@@ -1,10 +1,13 @@
-"""Recorded tool invocations retain their parents, retry order and result association."""
-
 import pytest
 
-from tallyjudge import Dataset, Evaluator, create_metric
-from tallyjudge.interfaces.workflow import WorkflowStep, WorkflowTrace
-from tallyjudge.plugins.adapters.workflow import langchain_trace
+from tallyjudge import Dataset, Evaluator, create_importer, create_metric
+from tallyjudge.sdk.workflow import WorkflowStep, WorkflowTrace
+
+
+def langchain_trace(events, *, run_id, include_content=False):
+    return create_importer(
+        "importer.langchain.trace", run_id=run_id, include_content=include_content
+    ).convert(events)
 
 
 def evt(kind, key, name, parents=(), **data):
@@ -123,9 +126,8 @@ async def test_live_langchain_branch_with_local_tool():
     tools = pytest.importorskip("langchain_core.tools")
     runnable = pytest.importorskip("langchain_core.runnables")
 
-    @tools.tool
+    @tools.tool(description="Look up a place.")
     def lookup(query: str) -> str:
-        """Find the local office for the given query."""
         return "London"
 
     flow = runnable.RunnableBranch(
@@ -183,9 +185,8 @@ async def test_successful_tool_can_return_a_business_error_status():
         "code": 42,
     }
 
-    @tools.tool
+    @tools.tool(description="Inspect a job.")
     def inspect_job(job_id: str) -> dict:
-        """Read the saved business status for a job."""
         return payload
 
     events = [

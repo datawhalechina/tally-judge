@@ -1,27 +1,24 @@
-"""Publish each run as one immutable JSONL file in the chosen directory."""
-
 import filecmp
 import json
 import os
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
-from tallyjudge.core.dataset import canonical_json
-from tallyjudge.core.results import RunResult
-from tallyjudge.interfaces.storage import storage_snapshot
-from tallyjudge.plugins._local import run_file
+from tallyjudge.plugins._local import DirectoryConfig, directory, run_file
+from tallyjudge.sdk.dataset import canonical_json
+from tallyjudge.sdk.plugin import Plugin
+from tallyjudge.sdk.results import RunResult
+from tallyjudge.sdk.storage import storage_snapshot
 
 
 class JsonlStorageBackend:
-    """Store each terminal run as ``run-<run_id>.jsonl`` under ``root``.
+    plugin = Plugin("storage")
+    plugin_id = "storage.local.jsonl"
 
-    Publishing uses a hard link from a temporary file in the same directory, so a
-    reader never sees a partial file and a concurrent identical save is idempotent.
-    The directory must be on a file system that supports hard links.
-    """
+    Config = DirectoryConfig
 
     def __init__(self, *, root: str | Path) -> None:
-        self.root = Path(root)
+        self.root = directory(root)
 
     def save_run(self, result: RunResult, *, include_inputs: bool = True) -> None:
         target = run_file(self.root, "run", result.run_id)
@@ -46,7 +43,6 @@ class JsonlStorageBackend:
                     stream.write(
                         json.dumps(record, ensure_ascii=False, allow_nan=False) + "\n"
                     )
-            # A hard link publishes complete bytes and never replaces a simultaneous winner.
             try:
                 os.link(temporary, target)
             except FileExistsError:

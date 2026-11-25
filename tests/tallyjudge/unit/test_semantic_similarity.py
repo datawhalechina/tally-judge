@@ -1,12 +1,10 @@
-"""Contract and numerical behavior of the standalone semantic similarity metric."""
-
 from types import SimpleNamespace
 
 import pytest
 
 from tallyjudge import Dataset, Evaluator, create_metric
-from tallyjudge.core.errors import PluginError
 from tallyjudge.registry import registry
+from tallyjudge.sdk.errors import PluginError
 
 KEY = "metric.text.semantic_similarity"
 

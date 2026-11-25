@@ -4,11 +4,14 @@ Original algorithm distributed under Apache-2.0; see repository LICENSE.
 Revision 1 is case-sensitive. An empty reference always scores 1.0.
 """
 
-from tallyjudge.core.results import MetricResult
-from tallyjudge.interfaces.metrics import MetricBase, MetricSpec
+from tallyjudge.sdk.metrics import MetricBase, MetricSpec
+from tallyjudge.sdk.plugin import Plugin
+from tallyjudge.sdk.results import MetricResult
 
 
 class StringPresenceMetric(MetricBase):
+    plugin = Plugin("metric")
+
     spec = MetricSpec(
         "metric.text.string_presence",
         "1",

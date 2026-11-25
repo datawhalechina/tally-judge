@@ -23,8 +23,6 @@ ROW = {
 FAITH = "metric.rag.faithfulness"
 RELEVANCE = "metric.rag.answer_relevance"
 
-# Upstream SHA-256 pairs: exact prompt bytes on Pydantic 2.14.3, then the same
-# prompt with only the JSON Schema's key order and insignificant whitespace normalized.
 PROMPTS = {
     "ac_answer": (
         "9cb8e616cefd81009b5f7dbe12a1b55547a610ccf281c2bd4176bba3eac36332",
@@ -252,7 +250,6 @@ async def test_archived_semantic_similarity(response, threshold, expected, clien
     assert_calls(client, [], [["X"], [response or " "]])
 
 
-# The classifier is called when either extracted side has statements.
 MIXED = (["A", "B"], ["A", "C", "D"], (1, 1, 2), "ac_classify_weighted")
 ANSWER_ONLY = (["B"], [], (0, 1, 0), "ac_classify_answer_only")
 REFERENCE_ONLY = ([], ["C"], (0, 0, 1), "ac_classify_reference_only")
@@ -441,7 +438,7 @@ async def test_faithfulness_verdicts(client, judge, verdicts, expected, status, 
             }
         )
     )
-    score = await evaluate(create_metric(FAITH, llm=judge), ROW)
+    score = await evaluate(create_metric(FAITH, llm=judge, revision="1"), ROW)
     assert (score.status, score.value) == (status, expected)
     assert (score.error.code if score.error else None) == reason
     assert_calls(client, ["statements", "verdicts"])

@@ -1,18 +1,21 @@
 """Answer relevance scoring and original prompts from Ragas ec00339 (Apache-2.0)."""
 
 import math
-from typing import Annotated, Any
+from typing import Any
 
 from pydantic import BaseModel, Field
 
-from tallyjudge.core.errors import ModelOutputError
-from tallyjudge.core.prompts import StructuredPrompt
-from tallyjudge.core.results import MetricResult
-from tallyjudge.interfaces.metrics import MetricSpec
-from tallyjudge.interfaces.models import EmbeddingModel, LanguageModel
+from tallyjudge.plugins._prompting import StructuredPrompt
 from tallyjudge.plugins._vectors import unit_vector
 from tallyjudge.plugins.metrics._cosine import embedding_vectors
-from tallyjudge.plugins.metrics.rag._judge import RagJudge
+from tallyjudge.plugins.metrics._judge import ModelJudge
+from tallyjudge.plugins.metrics.rag._inputs import required_text_inputs
+from tallyjudge.sdk.errors import ModelOutputError
+from tallyjudge.sdk.gate import gated
+from tallyjudge.sdk.metrics import MetricSpec
+from tallyjudge.sdk.models import EmbeddingModel, LanguageModel, model_snapshot
+from tallyjudge.sdk.plugin import Plugin
+from tallyjudge.sdk.results import MetricResult
 
 
 class AnswerRelevanceInput(BaseModel):
@@ -38,8 +41,6 @@ class AnswerRelevanceOutput(BaseModel):
 class AnswerRelevancePrompt(
     StructuredPrompt[AnswerRelevanceInput, AnswerRelevanceOutput]
 ):
-    """Answer relevance evaluation prompt with structured input/output."""
-
     input_model = AnswerRelevanceInput
     output_model = AnswerRelevanceOutput
 
@@ -80,45 +81,39 @@ class AnswerRelevanceConfig(BaseModel):
     strictness: int = Field(default=3, gt=0)
 
 
-class AnswerRelevanceMetric(RagJudge):
-    """Compare the original question with questions inferred from the answer."""
+class AnswerRelevanceMetric(ModelJudge):
+    plugin = Plugin(
+        "metric",
+        dependencies={"llm": "language_model", "embeddings": "embedding_model"},
+    )
+
+    Config = AnswerRelevanceConfig
 
     spec = MetricSpec(
         "metric.rag.answer_relevance",
         "1",
-        {
-            "user_input": Annotated[str, Field(min_length=1)],
-            "response": Annotated[str, Field(min_length=1)],
-        },
+        required_text_inputs("user_input", "response"),
         value_range=(-1.0, 1.0),
     )
 
     def __init__(
         self, llm: LanguageModel, embeddings: EmbeddingModel, strictness: int = 3
     ):
-        if type(strictness) is not int or strictness < 1:
-            raise ValueError("strictness must be a positive integer")
+        config = AnswerRelevanceConfig.model_validate(
+            {"strictness": strictness}, strict=True
+        )
         super().__init__(llm)
-        self.embeddings = embeddings
-        self.strictness = strictness
+        self.embeddings = gated(embeddings)
+        self.strictness = config.strictness
 
     def config_snapshot(self) -> dict[str, Any]:
         return {
             **super().config_snapshot(),
             "strictness": self.strictness,
-            "embeddings": {
-                "plugin_id": self.embeddings.plugin_id,
-                "config": self.embeddings.config_snapshot(),
-            },
+            "embeddings": model_snapshot(self.embeddings),
         }
 
     async def ascore(self, user_input: str, response: str) -> MetricResult:
-        """Score one answer against the original question."""
-        return await self.ascore_inputs(
-            {"user_input": user_input, "response": response}
-        )
-
-    async def _score(self, user_input: str, response: str) -> MetricResult:
         prompt = AnswerRelevancePrompt().render(AnswerRelevanceInput(response=response))
         questions = []
         flags = []

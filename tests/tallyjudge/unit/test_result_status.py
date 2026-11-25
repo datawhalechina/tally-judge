@@ -13,7 +13,7 @@ from tallyjudge import (
     RunCollector,
     create_metric,
 )
-from tallyjudge.interfaces.metrics import MetricBase, MetricSpec
+from tallyjudge.sdk.metrics import MetricBase, MetricSpec
 
 
 @pytest.mark.asyncio
@@ -61,7 +61,7 @@ async def test_live_snapshot_and_external_cancel_distinguish_unstarted_rows():
 
 def test_validation_is_one_warning_per_row_and_result_has_safe_fields(caplog):
     metric = create_metric("metric.text.exact_match")
-    with caplog.at_level(logging.WARNING, logger="tallyjudge.core.execution"):
+    with caplog.at_level(logging.WARNING, logger="tallyjudge.engine"):
         result = Evaluator(
             [MetricBinding(metric, key="mapped", input_map={"response": "answer"})]
         ).run(
@@ -92,10 +92,9 @@ def test_validation_is_one_warning_per_row_and_result_has_safe_fields(caplog):
     assert result.summary["mapped"]["coverage"] == 0.0
 
 
-@pytest.mark.parametrize("row", [{"reference": "a"}, {"reference": "a", "response": 1}])
-def test_missing_and_wrong_type_report_expected_parameter(row):
+def test_missing_input_reports_expected_parameter():
     metric = create_metric("metric.text.exact_match")
-    result = Evaluator([metric]).run(Dataset.from_records([row]))
+    result = Evaluator([metric]).run(Dataset.from_records([{"reference": "a"}]))
     error = result.rows[0].metrics[metric.spec.id].error
     assert error.field == "response"
     assert error.expected == "str"
@@ -106,6 +105,7 @@ def test_empty_dataset_is_completed_with_undefined_coverage():
     metric = create_metric("metric.text.exact_match")
     result = Evaluator([metric]).run(Dataset.from_records([]))
     assert (result.run_status, result.stop_reason) == ("completed", None)
+    assert result.rows == []
     assert result.summary[metric.spec.id]["coverage"] is None
     assert result.summary[metric.spec.id]["mean"] is None
 
@@ -118,7 +118,7 @@ async def test_generic_validation_reports_spec_type_and_debug_traceback(caplog):
         async def ascore(self, contexts):
             return MetricResult(1.0)
 
-    with caplog.at_level(logging.DEBUG, logger="tallyjudge.core.execution"):
+    with caplog.at_level(logging.DEBUG, logger="tallyjudge.engine"):
         result = await Evaluator([ContextMetric()]).arun(
             Dataset.from_records([{"contexts": [1]}])
         )

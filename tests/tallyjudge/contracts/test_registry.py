@@ -5,17 +5,23 @@ import pytest
 from pydantic import BaseModel, ConfigDict
 
 from tallyjudge import MetricResult
-from tallyjudge.core.errors import PluginError
-from tallyjudge.interfaces.metrics import Metric, MetricBase, MetricSpec
 from tallyjudge.plugins.metrics.text.exact_match import ExactMatchMetric
 from tallyjudge.plugins.metrics.text.string_presence import StringPresenceMetric
 from tallyjudge.registry import PluginRegistry, PluginSpec
 from tallyjudge.registry.builtins import BUILTINS
+from tallyjudge.registry.registry import KINDS
+from tallyjudge.sdk.errors import PluginError
+from tallyjudge.sdk.metrics import Metric, MetricBase, MetricSpec
 
-# Also included in the pyright input set: named ascore parameters must not
-# break the executor-facing structural protocol.
 exact: Metric = ExactMatchMetric()
 presence: Metric = StringPresenceMetric()
+
+
+BUILTIN_PLUGINS = [spec for spec in BUILTINS if isinstance(spec, PluginSpec)]
+
+
+def registry_kinds():
+    return list(PluginRegistry(BUILTINS).kinds())
 
 
 def test_lazy_list_describe_and_construct_in_fresh_process():
@@ -48,12 +54,12 @@ def test_registry_failures_and_explicit_replace():
     with pytest.raises(PluginError, match="Unknown plugin"):
         registry.create("unknown")
     with pytest.raises(PluginError, match="already registered"):
-        registry.register(BUILTINS[0])
-    registry.register(BUILTINS[0], replace=True)
+        registry.register(BUILTIN_PLUGINS[0])
+    registry.register(BUILTIN_PLUGINS[0], replace=True)
     assert len(registry.list(kind="metric")) == len(
-        [spec for spec in BUILTINS if spec.kind == "metric"]
+        [spec for spec in BUILTIN_PLUGINS if spec.kind == "metric"]
     )
-    assert len(registry.list(kind="model")) == 1
+    assert len(registry.list(kind="model")) == 2
     with pytest.raises(PluginError, match="configuration"):
         registry.create("metric.text.exact_match", model="unexpected")
     registry.register(PluginSpec("wrong", "metric", 1, ExactMatchMetric))
@@ -65,10 +71,9 @@ def test_registry_failures_and_explicit_replace():
     with pytest.raises(PluginError, match="api_version"):
         registry.create("version")
     registry.register(PluginSpec("unloaded", "metric", 1, "must_not_import:Factory"))
-    with pytest.raises(PluginError, match="configuration"):
-        registry.create("unloaded", bad=True)
-    with pytest.raises(PluginError, match="Cannot load"):
+    with pytest.raises(PluginError, match="Cannot load.*unloaded") as unloaded:
         registry.create("unloaded")
+    assert isinstance(unloaded.value.__cause__, ModuleNotFoundError)
     registry.register(
         PluginSpec(
             "absent",
@@ -100,35 +105,18 @@ def test_custom_schema_factory_and_snapshot():
             return {"score": self.value}
 
     def factory(**config):
-        return ConstantMetric(**config)
+        return ConstantMetric(**Settings(**config).model_dump())
 
     factory.spec = ConstantMetric.spec
+    factory.Config = Settings
     registry = PluginRegistry(
-        [PluginSpec(ConstantMetric.spec.id, "metric", 1, factory, config_type=Settings)]
+        [PluginSpec(ConstantMetric.spec.id, "metric", 1, factory)]
     )
     assert registry.describe(ConstantMetric.spec.id) is ConstantMetric.spec
     metric = registry.create(ConstantMetric.spec.id, score=0.75)
     assert metric.config_snapshot() == {"score": 0.75}
     with pytest.raises(PluginError, match="Invalid plugin configuration"):
         registry.create(ConstantMetric.spec.id, score="not a number")
-
-
-def test_load_errors_preserve_cause_and_plugin_id(monkeypatch):
-    import importlib
-
-    original = ModuleNotFoundError("missing_optional_sdk")
-
-    def broken_import(name):
-        raise original
-
-    monkeypatch.setattr(importlib, "import_module", broken_import)
-    registry = PluginRegistry(
-        [PluginSpec("metric.test.missing", "metric", 1, "broken.module:Factory")]
-    )
-    with pytest.raises(PluginError, match="metric.test.missing") as caught:
-        registry.create("metric.test.missing")
-    assert caught.value.__cause__ is original
-    assert not isinstance(caught.value.__cause__, PluginError)
 
 
 def test_construction_errors_preserve_cause_and_plugin_id():
@@ -153,3 +141,14 @@ def test_missing_named_scorer_fails_at_construction():
     with pytest.raises(PluginError, match="metric.test.incomplete") as caught:
         registry.create(Incomplete.spec.id)
     assert isinstance(caught.value.__cause__, TypeError)
+
+
+def test_builtin_manifest_matches_the_plugin_class_declarations():
+    from tallyjudge.sdk.plugin import declared_kinds, declared_plugins
+
+    assert list(declared_plugins("tallyjudge.plugins")) == BUILTIN_PLUGINS
+    assert [kind.kind for kind in declared_kinds("tallyjudge.plugins")] == [
+        "optimization",
+        "synthesis",
+    ]
+    assert registry_kinds() == [*KINDS, "optimization", "synthesis"]

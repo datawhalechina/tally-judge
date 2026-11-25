@@ -1,12 +1,11 @@
-"""Explicit, run-scoped export of content-free evaluation events to MLflow."""
-
 import asyncio
 import json
 from dataclasses import asdict
 from importlib import import_module
 
-from tallyjudge.core.events import RunEvent
-from tallyjudge.registry.specs import EmptyConfig
+from tallyjudge.sdk.config import EmptyConfig
+from tallyjudge.sdk.events import RunEvent
+from tallyjudge.sdk.plugin import Plugin
 
 
 class MlflowConfig(EmptyConfig):
@@ -17,21 +16,23 @@ class MlflowConfig(EmptyConfig):
 
 
 class MlflowEventSink:
-    """Upload one ordered event artifact per evaluation run on a worker thread."""
+    plugin = Plugin("event", requires=("mlflow-skinny",), extra="mlflow")
+    plugin_id = "event.mlflow.tracking"
+
+    Config = MlflowConfig
 
     def __init__(self, *, tracking_uri: str, experiment_id: str):
+        config = MlflowConfig(tracking_uri=tracking_uri, experiment_id=experiment_id)
         self.client = import_module("mlflow.tracking").MlflowClient(
-            tracking_uri=tracking_uri
+            tracking_uri=config.tracking_uri
         )
-        self.experiment_id = experiment_id
+        self.experiment_id = config.experiment_id
         self._pending: dict[str, list[RunEvent]] = {}
 
     def emit(self, event: RunEvent) -> None:
-        """Buffer lifecycle metadata until the evaluator finishes this run."""
         self._pending.setdefault(event.run_id, []).append(event)
 
     async def aflush_run(self, run_id: str) -> None:
-        """Upload events in sequence, propagating delivery failure to events_complete."""
         events = self._pending.pop(run_id)
         await asyncio.to_thread(self._export, run_id, events)
 

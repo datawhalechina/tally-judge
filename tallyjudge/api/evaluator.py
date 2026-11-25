@@ -1,33 +1,24 @@
-"""Explicit evaluation entry points without model or field inference."""
-
 import asyncio
 import logging
 from collections.abc import Sequence
 from typing import Any
 
-from tallyjudge.core.config import ExecutionConfig
-from tallyjudge.core.dataset import Dataset
-from tallyjudge.core.errors import EvaluationAborted, RunSaveError
-from tallyjudge.core.execution import TaskRunner, run_sync
-from tallyjudge.core.jobs import RowFunction
-from tallyjudge.core.results import RunCollector, RunResult
-from tallyjudge.interfaces.cache import ScoreCache
-from tallyjudge.interfaces.events import EventSink
-from tallyjudge.interfaces.metrics import Metric, MetricBinding
-from tallyjudge.interfaces.storage import StorageBackend
+from tallyjudge.engine.config import ExecutionConfig
+from tallyjudge.engine.jobs import RowFunction
+from tallyjudge.engine.scheduler import run_tasks
+from tallyjudge.sdk.cache import ScoreCache
+from tallyjudge.sdk.dataset import Dataset
+from tallyjudge.sdk.errors import EvaluationAborted, RunSaveError
+from tallyjudge.sdk.events import EventSink
+from tallyjudge.sdk.metrics import Metric, MetricBinding
+from tallyjudge.sdk.results import RunCollector, RunResult
+from tallyjudge.sdk.storage import StorageBackend
+from tallyjudge.sdk.sync import run_sync
 
 logger = logging.getLogger(__name__)
 
 
 class Evaluator:
-    """Evaluate datasets with a fixed set of metric bindings and execution settings.
-
-    With ``backend``, every terminal run is saved automatically from a worker thread.
-    A failed save of a completed or stopped run raises ``RunSaveError`` carrying the
-    result; while an abort, error or cancellation propagates, a failed save is only
-    logged so the original exception reaches the caller.
-    """
-
     def __init__(
         self,
         metrics: Sequence[Metric | MetricBinding],
@@ -54,11 +45,6 @@ class Evaluator:
     async def arun(
         self, dataset: Dataset, *, collector: RunCollector | None = None
     ) -> RunResult:
-        """Score a dataset in the caller's loop.
-
-        On external cancellation, the caller's collector retains the partial result.
-        Cleanup may delay propagation by up to the configured grace period.
-        """
         return await self._arun(dataset, collector, None)
 
     async def _arun(
@@ -69,9 +55,9 @@ class Evaluator:
         experiment_metadata: dict[str, Any] | None = None,
     ) -> RunResult:
         collector = collector if collector is not None else RunCollector()
-        previous = collector._result
+        previous = collector.run_id
         try:
-            result = await TaskRunner().arun(
+            result = await run_tasks(
                 dataset,
                 self.bindings,
                 self.config,
@@ -82,13 +68,12 @@ class Evaluator:
                 cache=self.cache,
             )
         except EvaluationAborted as exc:
-            await self._save_partial(exc.partial_result, collector._cleanup_deadline)
+            await self._save_partial(exc.partial_result, collector.cleanup_deadline)
             raise
         except BaseException:
-            # Save only a run this call started; a reused collector may hold an older one.
-            if self.backend is not None and collector._result is not previous:
+            if self.backend is not None and collector.run_id != previous:
                 await self._save_partial(
-                    collector.snapshot(), collector._cleanup_deadline
+                    collector.snapshot(), collector.cleanup_deadline
                 )
             raise
         if self.backend is not None:
@@ -103,7 +88,6 @@ class Evaluator:
         return result
 
     async def _save_partial(self, result: RunResult, deadline: float | None) -> None:
-        """Best-effort save while another exception propagates; failures are logged."""
         if self.backend is None or result.run_status == "running":
             return
         try:
@@ -118,13 +102,11 @@ class Evaluator:
                 "Saving partial run %s exceeded cleanup_timeout", result.run_id
             )
         except BaseException:
-            # Never replace the original failure or cancellation with a storage error.
             logger.exception("Saving partial run %s failed", result.run_id)
 
     def run(
         self, dataset: Dataset, *, collector: RunCollector | None = None
     ) -> RunResult:
-        """Score a dataset synchronously. Use arun inside an active event loop."""
         return run_sync(
             lambda: self.arun(dataset, collector=collector),
             "arun",

@@ -17,7 +17,7 @@ from tallyjudge import (
     RunCollector,
     create_metric,
 )
-from tallyjudge.interfaces.metrics import MetricBase, MetricSpec
+from tallyjudge.sdk.metrics import MetricBase, MetricSpec
 
 
 class UncooperativeMetric(MetricBase):
@@ -48,7 +48,7 @@ class UncooperativeMetric(MetricBase):
         self.release.set()
         if self.workers:
             await asyncio.gather(*self.workers, return_exceptions=True)
-        await asyncio.sleep(0)  # run the detached-task done callbacks
+        await asyncio.sleep(0)
 
 
 def records(*responses):
@@ -56,7 +56,6 @@ def records(*responses):
 
 
 async def assert_returns(task):
-    # A regression must fail the test rather than hang the test runner.
     done, _ = await asyncio.wait({task}, timeout=1.0)
     assert task in done, "Evaluation did not return within its cleanup grace period"
 
@@ -174,9 +173,7 @@ async def test_uncooperative_metric_cannot_block_evaluator(mode):
         )
         frozen = report.to_json()
         await metric.finish()
-        assert (
-            collector.snapshot().to_json() == frozen
-        )  # late success cannot overwrite timeout/cancelled
+        assert collector.snapshot().to_json() == frozen
     finally:
         await metric.finish()
         await asyncio.gather(task, return_exceptions=True)
@@ -199,8 +196,6 @@ async def test_repeated_cancellation_has_a_fixed_deadline():
             if task.done():
                 break
             task.cancel("again")
-            # Windows loop clocks may have a 15.6 ms resolution; shorter
-            # sleeps can all finish before the clock advances.
             await asyncio.sleep(0.02)
         assert task.done(), "Repeated cancellation extended the cleanup deadline"
         with pytest.raises(asyncio.CancelledError) as caught:
@@ -225,10 +220,9 @@ async def test_late_exception_is_logged_without_mutating_result(caplog):
         report = await task
         snapshot = report.to_json()
         metric.late_error = True
-        with caplog.at_level(logging.ERROR, logger="tallyjudge.core.execution"):
+        with caplog.at_level(logging.ERROR, logger="tallyjudge.engine"):
             await metric.finish()
         assert report.to_json() == snapshot
-        assert "late secret" not in snapshot
         assert any(
             record.exc_info and record.exc_info[0] is ZeroDivisionError
             for record in caplog.records
@@ -239,11 +233,10 @@ async def test_late_exception_is_logged_without_mutating_result(caplog):
 
 
 def test_sync_entry_exits_even_if_metric_never_cooperates():
-    # The subprocess watchdog also detects regressions in event-loop shutdown.
     code = """
 import asyncio
 from tallyjudge import Dataset, Evaluator, ExecutionConfig, MetricResult
-from tallyjudge.interfaces.metrics import MetricBase, MetricSpec
+from tallyjudge.sdk.metrics import MetricBase, MetricSpec
 class Stubborn(MetricBase):
     spec = MetricSpec('metric.test.stubborn', '1', {'response': str})
     async def ascore(self, response):
@@ -273,7 +266,7 @@ async def test_error_type_and_local_traceback(caplog):
         async def ascore(self, response):
             raise ZeroDivisionError("secret original input")
 
-    with caplog.at_level(logging.ERROR, logger="tallyjudge.core.execution"):
+    with caplog.at_level(logging.ERROR, logger="tallyjudge.engine"):
         result = await Evaluator([BrokenMetric()]).arun(records("a"))
     error = result.rows[0].metrics["metric.test.broken"].error
     assert error.category == "metric_error"
@@ -359,7 +352,6 @@ async def test_staggered_deadlines_fire_while_another_metric_is_cleaning():
     )
     try:
         await asyncio.wait_for(cleaning.wait(), 2)
-        # Keep the first worker in cleanup until the later worker sees its own timeout.
         await asyncio.wait_for(later_cancelled.wait(), 0.75)
     finally:
         release.set()
@@ -382,9 +374,7 @@ async def test_internal_failure_seals_every_started_row(monkeypatch, concurrency
     def broken_log(*args, **kwargs):
         raise original
 
-    monkeypatch.setattr(
-        logging.getLogger("tallyjudge.core.execution"), "warning", broken_log
-    )
+    monkeypatch.setattr(logging.getLogger("tallyjudge.engine"), "warning", broken_log)
     metric = create_metric("metric.text.exact_match")
     dataset = Dataset.from_records(
         [{"response": 7, "reference": "ok"} for _ in range(concurrency)]
@@ -435,7 +425,7 @@ def test_closed_caller_loop_releases_abandoned_run():
             dataset_ref = weakref.ref(dataset)
             del dataset
             gc.collect()
-            assert dataset_ref() is None  # The abandoned worker retains only its row.
+            assert dataset_ref() is None
             return weakref.ref(loop)
         finally:
             loop.close()

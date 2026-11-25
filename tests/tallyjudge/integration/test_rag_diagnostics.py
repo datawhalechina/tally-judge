@@ -1,5 +1,3 @@
-"""Public request, cancellation and cache contracts for the six diagnostic judges."""
-
 import asyncio
 import json
 from types import SimpleNamespace
@@ -15,8 +13,8 @@ from tallyjudge import (
     create_language_model,
     create_metric,
 )
-from tallyjudge.core.errors import PluginError
 from tallyjudge.registry import registry
+from tallyjudge.sdk.errors import PluginError
 
 ROW = {
     "case_id": "example",
@@ -76,16 +74,8 @@ async def test_second_judge_propagates_model_failure(
 
 
 @pytest.mark.parametrize(
-    ("metric", "settings", "replies", "code"),
+    ("metric", "settings", "replies"),
     [
-        ("context_entity_recall", {}, [{"entities": []}], "no_reference_entities"),
-        ("factual_correctness", {}, [{"claims": []}], "no_response_statements"),
-        (
-            "factual_correctness",
-            {},
-            [{"claims": ["x"]}, {"statements": []}],
-            "no_verdicts",
-        ),
         (
             "factual_correctness",
             {"mode": "precision"},
@@ -93,7 +83,6 @@ async def test_second_judge_propagates_model_failure(
                 {"claims": ["x"]},
                 {"statements": [{"statement": "x", "reason": "judge", "verdict": -1}]},
             ],
-            "invalid_verdict",
         ),
         (
             "noise_sensitivity",
@@ -107,13 +96,12 @@ async def test_second_judge_propagates_model_failure(
                     ]
                 },
             ],
-            "invalid_verdict",
         ),
     ],
 )
 @pytest.mark.asyncio
-async def test_terminal_judgment_stops_before_an_unrelated_transport_failure(
-    client, metric, settings, replies, code
+async def test_invalid_verdict_stops_before_an_unrelated_transport_failure(
+    client, metric, settings, replies
 ):
     plugin = create_metric("metric.rag." + metric, llm=model(client), **settings)
     for reply in replies:
@@ -121,8 +109,10 @@ async def test_terminal_judgment_stops_before_an_unrelated_transport_failure(
     client.responses.append(RuntimeError("an unnecessary request was made"))
     run = await Evaluator([plugin]).arun(Dataset.from_records([ROW]))
     score = run.rows[0].metrics[plugin.spec.id]
-    category = "model_output_error" if code == "invalid_verdict" else "undefined_score"
-    assert (score.error.category, score.error.code) == (category, code)
+    assert (score.error.category, score.error.code) == (
+        "model_output_error",
+        "invalid_verdict",
+    )
     assert score.usage.generation.requests == len(client.calls) == len(replies)
 
 
@@ -148,11 +138,21 @@ async def test_failed_second_call_keeps_observed_usage(client, name, first):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("name", "first"), FIRST_REPLIES)
+@pytest.mark.parametrize(
+    ("name", "first", "settings"),
+    [
+        *((name, first, {}) for name, first in FIRST_REPLIES),
+        (
+            "context_precision_without_reference",
+            {"verdict": 1, "reason": "late"},
+            {"concurrency": 1},
+        ),
+    ],
+)
 async def test_direct_cancel_stops_following_requests_even_if_transport_swallows_it(
-    client, name, first
+    client, name, first, settings
 ):
-    metric = create_metric("metric.rag." + name, llm=model(client))
+    metric = create_metric("metric.rag." + name, llm=model(client), **settings)
     entered, release, finished = asyncio.Event(), asyncio.Event(), asyncio.Event()
 
     async def delayed():

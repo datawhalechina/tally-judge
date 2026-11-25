@@ -1,5 +1,3 @@
-"""Exercise mixed question generation, its request budget, and real retrieval scoring."""
-
 import asyncio
 import json
 import re
@@ -19,13 +17,13 @@ from tallyjudge import (
     create_synthesizer,
     experiment,
 )
-from tallyjudge.core.errors import PluginError
 from tallyjudge.plugins.synthesis.documents import SourceDocument, split_documents
 from tallyjudge.plugins.synthesis.graph import (
     EvidenceGraph,
     build_entity_graph,
     build_similarity_graph,
 )
+from tallyjudge.sdk.errors import PluginError
 
 MIXED = "synthesis.testset.mixed"
 SINGLE = "synthesis.testset.single_hop"
@@ -63,11 +61,11 @@ def queue_questions(client, count):
 @pytest.mark.parametrize(
     "count, connected, size, share, expected",
     [
-        (3, True, 3, 0.5, (1, 2)),  # odd budget
-        (3, False, 3, 0.5, (3, 0)),  # no edges
-        (2, True, 9, 0.5, (2, 1)),  # all capacities exhausted
-        (4, True, 7, 0.1, (4, 3)),  # surplus pairs fill the missing singles
-        (20, True, 25, 0.58, (10, 15)),  # exact decimal half
+        (3, True, 3, 0.5, (1, 2)),
+        (3, False, 3, 0.5, (3, 0)),
+        (2, True, 9, 0.5, (2, 1)),
+        (4, True, 7, 0.1, (4, 3)),
+        (20, True, 25, 0.58, (10, 15)),
         (3, True, 8, 0, (3, 0)),
         (3, False, 4, 1, (0, 0)),
         (3, True, 4, 1, (0, 3)),

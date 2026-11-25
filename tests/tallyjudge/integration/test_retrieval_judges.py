@@ -1,5 +1,3 @@
-"""Public model behavior of the two ranked context judges."""
-
 import asyncio
 import json
 from types import SimpleNamespace
@@ -7,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from tallyjudge import Dataset, Evaluator, create_language_model, create_metric
-from tallyjudge.core.errors import InputValidationError, ModelOutputError
+from tallyjudge.sdk.errors import InputValidationError, ModelOutputError
 
 
 @pytest.mark.asyncio
@@ -96,14 +94,22 @@ async def test_precision_rejects_empty_answer_before_any_call(
         "metric.rag.context_precision_" + suffix, llm=make_judge(client)
     )
     with pytest.raises(InputValidationError):
-        await metric.ascore("question", "", ["evidence"])
+        await metric.ascore_inputs(
+            {
+                "user_input": "question",
+                "response" if without_reference else "reference": "",
+                "retrieved_contexts": ["evidence"],
+            }
+        )
     assert client.calls == []
 
 
 @pytest.mark.asyncio
 async def test_failed_later_passage_keeps_usage_from_earlier_attempts(client):
     metric = create_metric(
-        "metric.rag.context_precision_with_reference", llm=make_judge(client, retries=1)
+        "metric.rag.context_precision_with_reference",
+        llm=make_judge(client, retries=1),
+        concurrency=1,
     )
     client.chat_reply("not JSON")
     client.chat_reply(
@@ -133,30 +139,42 @@ async def test_failed_later_passage_keeps_usage_from_earlier_attempts(client):
 
 
 @pytest.mark.asyncio
-async def test_direct_precision_cancellation_stops_following_passages(client):
-    metric = create_metric(
-        "metric.rag.context_precision_without_reference", llm=make_judge(client)
-    )
-    started, release, returned = asyncio.Event(), asyncio.Event(), asyncio.Event()
+async def test_passages_are_judged_concurrently_but_ranked_in_retrieval_order(client):
+    waiting, release = [], asyncio.Event()
 
-    async def slow():
-        started.set()
-        try:
-            await asyncio.Future()
-        except asyncio.CancelledError:
+    def reply(verdict):
+        async def respond():
+            waiting.append(verdict)
             await release.wait()
-        returned.set()
-        return client.responses.popleft()
+            return SimpleNamespace(
+                model="served-chat",
+                usage=None,
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(
+                            content=json.dumps({"verdict": verdict, "reason": "r"}),
+                            refusal=None,
+                        ),
+                        finish_reason="stop",
+                    )
+                ],
+            )
 
-    client.responses.append(slow)
-    client.chat_reply('{"verdict":1,"reason":"late"}')
-    task = asyncio.create_task(metric.ascore("q", "a", ["a", "b"]))
-    await asyncio.wait_for(started.wait(), 2)
-    task.cancel()
-    try:
-        with pytest.raises(asyncio.CancelledError):
-            await task
-    finally:
-        release.set()
-    await asyncio.wait_for(returned.wait(), 2)
-    assert len(client.calls) == 1
+        return respond
+
+    client.responses.extend(reply(verdict) for verdict in (0, 1, 1))
+    metric = create_metric(
+        "metric.rag.context_precision_with_reference",
+        llm=make_judge(client),
+        concurrency=2,
+    )
+    task = asyncio.create_task(
+        metric.ascore_inputs(
+            {"user_input": "q", "reference": "r", "retrieved_contexts": ["a", "b", "c"]}
+        )
+    )
+    await asyncio.sleep(0.05)
+    assert waiting == [0, 1]
+    release.set()
+    assert (await task).value == pytest.approx((1 / 2 + 2 / 3) / 2)
+    assert len(client.calls) == 3

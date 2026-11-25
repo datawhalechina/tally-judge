@@ -1,48 +1,19 @@
-"""Exact ordered tool execution from validated neutral workflow traces."""
-
-from typing import Annotated
-
-from pydantic import AfterValidator
-
-from tallyjudge.core.errors import UndefinedScore
-from tallyjudge.core.results import MetricResult
-from tallyjudge.interfaces.metrics import MetricBase, MetricSpec
-from tallyjudge.interfaces.workflow import WorkflowTrace
-
-
-def _trace_data(value: dict) -> dict:
-    return WorkflowTrace.model_validate(value).model_dump()
+from tallyjudge.plugins.metrics.workflow._trace import EXPECTED_TOOLS, tool_calls
+from tallyjudge.sdk.metrics import MetricBase, MetricSpec
+from tallyjudge.sdk.plugin import Plugin
+from tallyjudge.sdk.results import MetricResult
 
 
 class ToolSequenceMetric(MetricBase):
-    """Compare the names of successful tool attempts in start order."""
+    plugin = Plugin("metric")
 
     spec = MetricSpec(
         "metric.workflow.tool_sequence",
         "1",
-        {
-            "trace": Annotated[dict, AfterValidator(_trace_data)],
-            "expected_tools": list[str],
-        },
+        EXPECTED_TOOLS,
         value_range=(0.0, 1.0),
     )
 
     async def ascore(self, trace: dict, expected_tools: list[str]) -> MetricResult:
-        """Score a recorded workflow and reject unfinished attempts as undefined."""
-        return await self.ascore_inputs(
-            {"trace": trace, "expected_tools": expected_tools}
-        )
-
-    async def _ascore_validated(
-        self, trace: dict, expected_tools: list[str]
-    ) -> MetricResult:
-        if any(
-            step["status"] in ("incomplete", "cancelled") for step in trace["steps"]
-        ):
-            raise UndefinedScore("incomplete_trace")
-        tools = [
-            step["name"]
-            for step in trace["steps"]
-            if step["kind"] == "tool" and step["status"] == "success"
-        ]
+        tools = [step["name"] for step in tool_calls(trace)]
         return MetricResult(float(tools == expected_tools))

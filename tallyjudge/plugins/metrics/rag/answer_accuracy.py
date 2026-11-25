@@ -4,16 +4,16 @@ Available ratings are normalized as in the archive. An empty set of ratings is u
 
 from functools import cache
 
-from tallyjudge.core.prompts import StructuredPrompt
-from tallyjudge.core.results import MetricResult
-from tallyjudge.interfaces.metrics import MetricSpec
-from tallyjudge.plugins.metrics.rag._dual_judge import DualJudge
-from tallyjudge.plugins.metrics.rag._judge import required_text_inputs
+from tallyjudge.plugins._prompting import StructuredPrompt
+from tallyjudge.plugins.metrics.rag._dual_judge import DualJudge, DualJudgeConfig
+from tallyjudge.plugins.metrics.rag._inputs import required_text_inputs
+from tallyjudge.sdk.metrics import MetricSpec
+from tallyjudge.sdk.plugin import Plugin
+from tallyjudge.sdk.results import MetricResult
 
 
 @cache
 def _prompts():
-    """Build both archived rating prompts."""
     from pydantic import BaseModel, Field
 
     class AnswerAccuracyInput(BaseModel):
@@ -119,7 +119,9 @@ Return your response as JSON in this format: {"rating": X} where X is 0, 2, or 4
 
 
 class AnswerAccuracyMetric(DualJudge):
-    """Average two accuracy ratings with the response and reference presented in opposite order."""
+    plugin = Plugin("metric", dependencies={"llm": "language_model"})
+
+    Config = DualJudgeConfig
 
     grades = (0, 2, 4)
     spec = MetricSpec(
@@ -130,14 +132,6 @@ class AnswerAccuracyMetric(DualJudge):
     )
 
     async def ascore(
-        self, user_input: str, response: str, reference: str
-    ) -> MetricResult:
-        """Compare the system answer with a reference answer for the same question."""
-        return await self.ascore_inputs(
-            {"user_input": user_input, "response": response, "reference": reference}
-        )
-
-    async def _score(
         self, user_input: str, response: str, reference: str
     ) -> MetricResult:
         return await self._rate_pair(

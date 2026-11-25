@@ -1,0 +1,131 @@
+{
+  "names": [
+    "Analyzer",
+    "BufferedEventSink",
+    "Dataset",
+    "EmbeddingModel",
+    "EmbeddingResult",
+    "EmptyConfig",
+    "ErrorInfo",
+    "EventKind",
+    "EventSink",
+    "GenerationResult",
+    "Importer",
+    "InputValidationError",
+    "KindSpec",
+    "LanguageModel",
+    "LanguageModelBase",
+    "Message",
+    "Metric",
+    "MetricBase",
+    "MetricBinding",
+    "MetricResult",
+    "MetricSpec",
+    "ModelError",
+    "ModelOutputError",
+    "Plugin",
+    "PluginError",
+    "PluginSpec",
+    "PromptInput",
+    "RequestCall",
+    "RequestRecord",
+    "RowResult",
+    "RunEvent",
+    "RunResult",
+    "Runner",
+    "ScoreCache",
+    "ScoreResult",
+    "ScoreUsage",
+    "SourceDocument",
+    "StorageBackend",
+    "UndefinedScore",
+    "Usage",
+    "UsageSummary",
+    "WorkflowStep",
+    "WorkflowTrace",
+    "gated",
+    "record_request"
+  ],
+  "contracts": {
+    "Metric": {
+      "ascore_inputs": "(self, inputs: collections.abc.Mapping[str, typing.Any]) -> tallyjudge.sdk.results.MetricResult",
+      "config_snapshot": "(self) -> dict[str, typing.Any]"
+    },
+    "MetricBase": {
+      "ascore": "(self, *args: Any, **kwargs: Any) -> tallyjudge.sdk.results.MetricResult",
+      "ascore_inputs": "(self, inputs: collections.abc.Mapping[str, typing.Any]) -> tallyjudge.sdk.results.MetricResult",
+      "config_snapshot": "(self) -> dict[str, typing.Any]",
+      "score": "(self, **inputs: Any) -> tallyjudge.sdk.results.MetricResult"
+    },
+    "LanguageModel": {
+      "agenerate": "(self, prompt: tallyjudge.sdk.prompts.PromptInput, response_model: type[T]) -> tallyjudge.sdk.models.GenerationResult[T]",
+      "config_snapshot": "(self) -> dict[str, typing.Any]"
+    },
+    "EmbeddingModel": {
+      "aembed_texts": "(self, texts: collections.abc.Sequence[str]) -> tallyjudge.sdk.models.EmbeddingResult",
+      "config_snapshot": "(self) -> dict[str, typing.Any]"
+    },
+    "StorageBackend": {
+      "save_run": "(self, result: tallyjudge.sdk.results.RunResult, *, include_inputs: bool = True) -> None",
+      "load_run": "(self, run_id: str) -> tallyjudge.sdk.results.RunResult"
+    },
+    "ScoreCache": {
+      "get": "(self, key: str) -> tallyjudge.sdk.results.MetricResult | None",
+      "put": "(self, key: str, score: tallyjudge.sdk.results.MetricResult) -> None"
+    },
+    "EventSink": {
+      "emit": "(self, event: tallyjudge.sdk.events.RunEvent) -> None"
+    },
+    "Importer": {
+      "convert": "(self, source: Any) -> Any"
+    },
+    "Runner": {
+      "__call__": "(self, row: dict[str, typing.Any]) -> dict[str, Any] | None | collections.abc.Awaitable[dict[str, Any] | None]"
+    },
+    "Analyzer": {
+      "analyze": "(self, runs: collections.abc.Sequence[tallyjudge.sdk.results.RunResult]) -> dict[str, typing.Any]"
+    }
+  },
+  "records": {
+    "Plugin": [
+      "kind",
+      "dependencies",
+      "optional_dependencies",
+      "requires",
+      "extra",
+      "produces"
+    ],
+    "PluginSpec": [
+      "id",
+      "kind",
+      "api_version",
+      "factory",
+      "required_distributions",
+      "dependencies",
+      "install_extra",
+      "optional_dependencies",
+      "produces"
+    ],
+    "KindSpec": [
+      "kind",
+      "contract"
+    ],
+    "MetricSpec": [
+      "id",
+      "revision",
+      "inputs",
+      "output_type",
+      "value_range",
+      "direction",
+      "labels",
+      "ranking_length",
+      "defaults",
+      "levels"
+    ],
+    "MetricResult": [
+      "value",
+      "reason",
+      "details"
+    ]
+  }
+}

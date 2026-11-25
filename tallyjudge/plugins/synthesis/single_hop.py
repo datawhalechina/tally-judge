@@ -14,12 +14,13 @@ from tallyjudge.plugins.synthesis._evidence import (
     SamplingConfig,
 )
 from tallyjudge.plugins.synthesis.scenarios import EvidenceChunk
-
-SingleHopConfig = SamplingConfig
+from tallyjudge.sdk.plugin import Plugin
 
 
 class SingleHopSynthesizer(EvidenceSynthesizer):
-    """Sample unique passages and generate one question per passage."""
+    plugin = Plugin("synthesis", dependencies={"llm": "language_model"})
+
+    Config = SamplingConfig
 
     plugin_id = "synthesis.testset.single_hop"
     prompt_revision = "2"
@@ -27,7 +28,6 @@ class SingleHopSynthesizer(EvidenceSynthesizer):
     def select(
         self, chunks: Iterable[Mapping[str, Any]], size: int
     ) -> list[tuple[EvidenceChunk, ...]]:
-        """Select without replacement, independently of input ordering."""
         by_id = {}
         for record in chunks:
             chunk = EvidenceChunk.model_validate(record)
@@ -40,7 +40,6 @@ class SingleHopSynthesizer(EvidenceSynthesizer):
 def select_passages(
     by_id: Mapping[str, EvidenceChunk], size: int, seed: int
 ) -> list[tuple[EvidenceChunk, ...]]:
-    """Sample individual passages in seed order from unique evidence IDs."""
     ordered = sorted(by_id)
     random.Random(seed).shuffle(ordered)
     return [(by_id[key],) for key in ordered[:size]]

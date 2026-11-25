@@ -1,5 +1,3 @@
-"""Default import, discovery and local evaluation must not contact remote services."""
-
 import subprocess
 import sys
 import textwrap

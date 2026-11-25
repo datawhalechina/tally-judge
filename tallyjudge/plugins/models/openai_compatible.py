@@ -1,16 +1,15 @@
-"""Structured text generation through an injected asynchronous Chat Completions client."""
-
 from collections.abc import Sequence
 from dataclasses import asdict
 from typing import Any, Literal, Self
 
 from pydantic import Field, model_validator
 
-from tallyjudge.core.errors import ModelOutputError
-from tallyjudge.core.prompts import Message
-from tallyjudge.core.usage import RequestRecord
-from tallyjudge.interfaces.models import LanguageModelBase
 from tallyjudge.plugins._openai_compatible import ClientConfig, ClientTransport
+from tallyjudge.sdk.errors import ModelOutputError
+from tallyjudge.sdk.models import LanguageModelBase
+from tallyjudge.sdk.plugin import Plugin
+from tallyjudge.sdk.prompts import Message
+from tallyjudge.sdk.usage import RequestRecord
 
 
 class ChatConfig(ClientConfig):
@@ -29,12 +28,13 @@ class ChatConfig(ClientConfig):
 
 
 class OpenAICompatibleLanguageModel(LanguageModelBase):
-    """Read one non-streaming text choice per request on the caller's async client."""
+    plugin = Plugin("model", dependencies={"client": "client"})
+
+    Config = ChatConfig
 
     plugin_id = "model.openai_compatible.chat_completions"
 
     def __init__(self, *, client: Any, **settings: Any):
-        """Validate ``ChatConfig`` settings and bind a retry-disabled client view."""
         self.config = ChatConfig(**settings)
         self._transport = ClientTransport(client, self.config, "generation")
 

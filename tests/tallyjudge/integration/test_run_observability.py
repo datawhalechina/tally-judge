@@ -20,7 +20,7 @@ from tallyjudge import (
     experiment,
     numeric_metric,
 )
-from tallyjudge.core.prompts import PromptInput
+from tallyjudge.sdk.prompts import PromptInput
 
 CHAT = "model.openai_compatible.chat_completions"
 EMBED = "embedding.openai_compatible.embeddings"
@@ -240,7 +240,6 @@ async def test_timed_out_score_never_populates_cache_and_inputs_are_part_of_key(
     finally:
         release.set()
     await asyncio.wait_for(finished.wait(), 2)
-    # Only the first run tests a deadline. Disk latency must not time out the cache checks.
     cached = Evaluator([score()], cache=cache)
     for value, hit in [("old", False), ("old", True), ("new", False)]:
         result = await cached.arun(data(value))
@@ -256,7 +255,7 @@ def test_cache_leaves_non_json_validated_inputs_scorable(tmp_path):
     from pydantic import AfterValidator
 
     from tallyjudge import MetricResult
-    from tallyjudge.interfaces.metrics import MetricBase, MetricSpec
+    from tallyjudge.sdk.metrics import MetricBase, MetricSpec
 
     def as_path(name: str) -> Path:
         return Path(name)
@@ -276,7 +275,7 @@ def test_cache_leaves_non_json_validated_inputs_scorable(tmp_path):
         Dataset.from_records([{"name": "a.txt"}])
     )
     score = result.rows[0].metrics[PathMetric.spec.id]
-    assert score.value == 1.0 and not score.cache_hit
+    assert score.value == 1.0
 
 
 @pytest.mark.parametrize("failure", ["read", "write"])

@@ -12,8 +12,8 @@ from tallyjudge import (
     create_metric,
     create_storage_backend,
 )
-from tallyjudge.core.results import CleanupWarning
-from tallyjudge.core.usage import ScoreUsage, UsageSummary
+from tallyjudge.sdk.results import CleanupWarning
+from tallyjudge.sdk.usage import ScoreUsage, UsageSummary
 
 EXACT = "metric.text.exact_match"
 
@@ -127,7 +127,7 @@ def test_previous_v1_without_code_or_usage_and_partial_token_snapshot(backend):
             score["error"].pop("code")
     data["summary"] = {"ignore_this_stale_summary": True}
     old = RunResult.from_dict(data)
-    assert old.schema_version == 1 and old.usage is None
+    assert old.schema_version == 4 and old.usage is None
     assert old.row_for(9).metrics[EXACT].error.code is None
     assert old.summary[EXACT]["mean"] == 0.5
     assert all(

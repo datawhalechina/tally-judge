@@ -1,16 +1,20 @@
 """Ragas _context_recall.py (ec00339, Apache-2.0), with explicit empty-reference semantics."""
 
-from tallyjudge.core.errors import UndefinedScore
-from tallyjudge.core.results import MetricResult
-from tallyjudge.interfaces.metrics import MetricSpec
 from tallyjudge.plugins.metrics.retrieval._text_context import (
     CONTEXT_INPUTS,
+    TextContextConfig,
     TextContextMetric,
 )
+from tallyjudge.sdk.errors import UndefinedScore
+from tallyjudge.sdk.metrics import MetricSpec
+from tallyjudge.sdk.plugin import Plugin
+from tallyjudge.sdk.results import MetricResult
 
 
 class TextContextRecallMetric(TextContextMetric):
-    """Fraction of reference passages matched by at least one retrieved passage."""
+    plugin = Plugin("metric", requires=("rapidfuzz",), extra="text-distance")
+
+    Config = TextContextConfig
 
     spec = MetricSpec(
         "metric.retrieval.text_context_recall",
@@ -19,7 +23,7 @@ class TextContextRecallMetric(TextContextMetric):
         value_range=(0.0, 1.0),
     )
 
-    async def _ascore_validated(
+    async def ascore(
         self, retrieved_contexts: list[str], reference_contexts: list[str]
     ) -> MetricResult:
         if not reference_contexts:

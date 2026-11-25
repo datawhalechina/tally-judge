@@ -7,7 +7,7 @@ import typing as t
 
 from pydantic import BaseModel, Field
 
-from tallyjudge.core.prompts import StructuredPrompt
+from tallyjudge.plugins._prompting import StructuredPrompt
 from tallyjudge.plugins.synthesis._prompts import Persona, TextWithExtractionLimit
 
 
@@ -243,18 +243,14 @@ class ConceptCombinationPrompt(StructuredPrompt[ConceptsList, ConceptCombination
         "- List the combinations clearly and concisely.\n"
         "- Do not repeat the same combination more than once."
     )
-    input_model: t.Type[ConceptsList] = (
-        ConceptsList  # Contains lists of concepts from each node
-    )
-    output_model: t.Type[ConceptCombinations] = (
-        ConceptCombinations  # Contains list of concept combinations
-    )
+    input_model: t.Type[ConceptsList] = ConceptsList
+    output_model: t.Type[ConceptCombinations] = ConceptCombinations
     examples: t.List[t.Tuple[ConceptsList, ConceptCombinations]] = [
         (
             ConceptsList(
                 lists_of_concepts=[
-                    ["Artificial intelligence", "Automation"],  # Concepts from Node 1
-                    ["Healthcare", "Data privacy"],  # Concepts from Node 2
+                    ["Artificial intelligence", "Automation"],
+                    ["Healthcare", "Data privacy"],
                 ],
                 max_combinations=2,
             ),

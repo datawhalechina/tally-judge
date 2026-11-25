@@ -1,9 +1,7 @@
-"""Stable document and chunk identities used by synthesis plugins."""
-
 import re
 from collections.abc import Callable, Iterable, Iterator
 
-from tallyjudge.interfaces.synthesis import SourceDocument as SourceDocument
+from tallyjudge.sdk.documents import SourceDocument as SourceDocument
 
 
 def split_documents(
@@ -12,7 +10,6 @@ def split_documents(
     max_size: int = 1200,
     measure: Callable[[str], int] = len,
 ) -> Iterator[dict]:
-    """Split at word boundaries, keeping page-local offsets and mentions in each chunk."""
     if max_size < 1:
         raise ValueError("max_size must be positive")
     seen = set()
@@ -27,7 +24,6 @@ def split_documents(
                 "Document IDs must be nonblank and each source page must be unique"
             )
         seen.add(source)
-        # Offsets refer to the original text, even when the size is measured in tokens.
         start = end = 0
         for word in re.finditer(r"\S+", doc.text):
             if end > start and measure(doc.text[start : word.end()]) > max_size:
@@ -55,14 +51,12 @@ def split_documents(
 
 
 def _mentioned_entities(text: str, labels: Iterable[str]) -> list[str]:
-    """Keep labels mentioned in the passage, case-insensitively, in their original order."""
     folded = text.casefold()
     mentions = []
     for label in labels:
         term = label.strip().casefold()
         if not term:
             continue
-        # ASCII boundaries distinguish "Kit" from "kitchen". CJK names can abut words.
         pattern = re.escape(term)
         if re.match(r"[a-z0-9_]", term):
             pattern = rf"(?<![a-z0-9_]){pattern}"
