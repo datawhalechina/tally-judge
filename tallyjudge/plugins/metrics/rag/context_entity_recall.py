@@ -4,15 +4,16 @@ An empty reference entity set is undefined and needs no passage extraction.
 Defined scores retain the archived epsilon.
 """
 
-from tallyjudge.core.errors import UndefinedScore
-from tallyjudge.core.results import MetricResult
-from tallyjudge.interfaces.metrics import MetricSpec
+from tallyjudge.plugins.metrics._judge import ModelJudge
 from tallyjudge.plugins.metrics.rag._entity_prompt import prompt
-from tallyjudge.plugins.metrics.rag._judge import RagJudge
+from tallyjudge.sdk.errors import UndefinedScore
+from tallyjudge.sdk.metrics import MetricSpec
+from tallyjudge.sdk.plugin import Plugin
+from tallyjudge.sdk.results import MetricResult
 
 
-class ContextEntityRecallMetric(RagJudge):
-    """Fraction of distinct reference entities also found in the retrieved passages."""
+class ContextEntityRecallMetric(ModelJudge):
+    plugin = Plugin("metric", dependencies={"llm": "language_model"})
 
     spec = MetricSpec(
         "metric.rag.context_entity_recall",
@@ -21,14 +22,6 @@ class ContextEntityRecallMetric(RagJudge):
         value_range=(0.0, 1.0),
     )
 
-    async def ascore(
-        self, reference: str, retrieved_contexts: list[str]
-    ) -> MetricResult:
-        """Extract entities from the reference and from the joined passages, in order."""
-        return await self.ascore_inputs(
-            {"reference": reference, "retrieved_contexts": retrieved_contexts}
-        )
-
     async def _entities(self, text: str) -> set[str]:
         template = prompt()
         reply = await self._ask(
@@ -36,7 +29,7 @@ class ContextEntityRecallMetric(RagJudge):
         )
         return set(reply.entities)
 
-    async def _score(
+    async def ascore(
         self, reference: str, retrieved_contexts: list[str]
     ) -> MetricResult:
         reference_entities = await self._entities(reference)

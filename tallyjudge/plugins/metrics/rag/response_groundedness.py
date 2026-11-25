@@ -4,16 +4,16 @@ Available ratings are normalized as in the archive. An empty set of ratings is u
 
 from functools import cache
 
-from tallyjudge.core.prompts import StructuredPrompt
-from tallyjudge.core.results import MetricResult
-from tallyjudge.interfaces.metrics import MetricSpec
-from tallyjudge.plugins.metrics.rag._dual_judge import DualJudge
-from tallyjudge.plugins.metrics.rag._judge import required_text_inputs
+from tallyjudge.plugins._prompting import StructuredPrompt
+from tallyjudge.plugins.metrics.rag._dual_judge import DualJudge, DualJudgeConfig
+from tallyjudge.plugins.metrics.rag._inputs import required_text_inputs
+from tallyjudge.sdk.metrics import MetricSpec
+from tallyjudge.sdk.plugin import Plugin
+from tallyjudge.sdk.results import MetricResult
 
 
 @cache
 def _prompts():
-    """Build both archived rating prompts."""
     from pydantic import BaseModel, Field
 
     class ResponseGroundednessInput(BaseModel):
@@ -115,7 +115,9 @@ Return your response as JSON in this format: {"rating": X} where X is 0, 1, or 2
 
 
 class ResponseGroundednessMetric(DualJudge):
-    """Rate how well the retrieved passages support the entire response."""
+    plugin = Plugin("metric", dependencies={"llm": "language_model"})
+
+    Config = DualJudgeConfig
 
     grades = (0, 1, 2)
     spec = MetricSpec(
@@ -126,14 +128,6 @@ class ResponseGroundednessMetric(DualJudge):
     )
 
     async def ascore(
-        self, response: str, retrieved_contexts: list[str]
-    ) -> MetricResult:
-        """Score the response against the joined passages with two groundedness prompts."""
-        return await self.ascore_inputs(
-            {"response": response, "retrieved_contexts": retrieved_contexts}
-        )
-
-    async def _score(
         self, response: str, retrieved_contexts: list[str]
     ) -> MetricResult:
         context = "\n".join(retrieved_contexts)

@@ -4,7 +4,7 @@ import typing as t
 
 from pydantic import BaseModel, Field
 
-from tallyjudge.core.prompts import StructuredPrompt
+from tallyjudge.plugins._prompting import StructuredPrompt
 
 DEFAULT_REFERENCE_FREE_RUBRICS = {
     "score1_description": "The response is entirely incorrect and fails to address any aspect of the user input.",
@@ -51,8 +51,6 @@ class RubricScoreOutput(BaseModel):
 
 
 class RubricScorePrompt(StructuredPrompt[RubricScoreInput, RubricScoreOutput]):
-    """Prompt for scoring responses using a rubric."""
-
     input_model = RubricScoreInput
     output_model = RubricScoreOutput
 
@@ -117,8 +115,6 @@ class InstanceRubricScoreOutput(BaseModel):
 class InstanceRubricScorePrompt(
     StructuredPrompt[InstanceRubricScoreInput, InstanceRubricScoreOutput]
 ):
-    """Prompt for scoring responses using instance-specific rubrics."""
-
     input_model = InstanceRubricScoreInput
     output_model = InstanceRubricScoreOutput
 

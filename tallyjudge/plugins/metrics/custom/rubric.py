@@ -8,11 +8,7 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from tallyjudge.core.results import MetricResult
-from tallyjudge.core.usage import mark_usage_source, run_scoped_score
-from tallyjudge.interfaces.metrics import MetricBase, MetricSpec
-from tallyjudge.interfaces.models import LanguageModel
-from tallyjudge.plugins.metrics.custom._model import judge_snapshot, rule_digest
+from tallyjudge.plugins.metrics._judge import ModelJudge
 from tallyjudge.plugins.metrics.custom._rubric_prompts import (
     DEFAULT_REFERENCE_FREE_RUBRICS,
     DEFAULT_WITH_REFERENCE_RUBRICS,
@@ -23,6 +19,11 @@ from tallyjudge.plugins.metrics.custom._rubric_prompts import (
     RubricScoreOutput,
     RubricScorePrompt,
 )
+from tallyjudge.sdk.dataset import canonical_sha256
+from tallyjudge.sdk.metrics import MetricSpec
+from tallyjudge.sdk.models import LanguageModel
+from tallyjudge.sdk.plugin import Plugin
+from tallyjudge.sdk.results import MetricResult
 
 _INPUTS = {
     "user_input": str | None,
@@ -39,55 +40,37 @@ class RubricConfig(BaseModel):
     rubrics: dict[str, str] | None = None
 
 
-class _FixedRubric(MetricBase):
+class _Rubric(ModelJudge):
+    @property
+    def prompt_revision(self) -> str:
+        return self.spec.revision
+
+
+class _FixedRubric(_Rubric):
     default_rubrics: dict[str, str]
 
     def __init__(self, llm: LanguageModel, rubrics: dict[str, str] | None = None):
-        self.llm = llm
+        super().__init__(llm)
         supplied = RubricConfig(rubrics=rubrics).rubrics
         rules = self.default_rubrics if supplied is None else supplied
         rule_text = "\n".join(f"{key}: {value}" for key, value in rules.items())
         self.prompt = RubricScorePrompt()
         self.prompt.instruction += f"\n\nScoring Rubrics:\n{rule_text}\n"
-        self._digest = rule_digest(rule_text)
+        self._digest = canonical_sha256(rule_text)
 
     def config_snapshot(self) -> dict[str, Any]:
-        return {
-            **judge_snapshot(self.llm, prompt_revision=self.spec.revision),
-            "rubrics_sha256": self._digest,
-        }
+        return {**super().config_snapshot(), "rubrics_sha256": self._digest}
 
-    async def ascore(
-        self,
-        response: str | None = None,
-        *,
-        user_input: str | None = None,
-        retrieved_contexts: list[str] | None = None,
-        reference_contexts: list[str] | None = None,
-        reference: str | None = None,
-    ) -> MetricResult:
-        """Apply the configured rubric to the supplied sample fields."""
-        return await self.ascore_inputs(
-            dict(
-                user_input=user_input,
-                response=response,
-                retrieved_contexts=retrieved_contexts,
-                reference_contexts=reference_contexts,
-                reference=reference,
-            )
-        )
-
-    async def _ascore_validated(self, **inputs: Any) -> MetricResult:
+    async def ascore(self, **inputs: Any) -> MetricResult:
         prompt = self.prompt.render(RubricScoreInput.model_construct(**inputs))
-        mark_usage_source("generation", self.llm.plugin_id, self.llm.usage_tracking)
-        verdict = (
-            await run_scoped_score(self.llm.agenerate(prompt, RubricScoreOutput))
-        ).data
+        verdict = await self._ask(prompt, RubricScoreOutput)
         return MetricResult(float(verdict.score), verdict.feedback)
 
 
 class RubricWithoutReferenceMetric(_FixedRubric):
-    """Grade a sample using the reference-free default rubric or supplied criteria."""
+    plugin = Plugin("metric", dependencies={"llm": "language_model"})
+
+    Config = RubricConfig
 
     spec = MetricSpec(
         "metric.custom.rubric_without_reference",
@@ -101,7 +84,9 @@ class RubricWithoutReferenceMetric(_FixedRubric):
 
 
 class RubricWithReferenceMetric(_FixedRubric):
-    """Grade a sample using the reference-based default rubric or supplied criteria."""
+    plugin = Plugin("metric", dependencies={"llm": "language_model"})
+
+    Config = RubricConfig
 
     spec = MetricSpec(
         "metric.custom.rubric_with_reference",
@@ -113,27 +98,9 @@ class RubricWithReferenceMetric(_FixedRubric):
     )
     default_rubrics = DEFAULT_WITH_REFERENCE_RUBRICS
 
-    async def ascore(
-        self,
-        response: str | None = None,
-        reference: str | None = None,
-        *,
-        user_input: str | None = None,
-        retrieved_contexts: list[str] | None = None,
-        reference_contexts: list[str] | None = None,
-    ) -> MetricResult:
-        """Grade one answer with its optional positional reference."""
-        return await super().ascore(
-            response,
-            reference=reference,
-            user_input=user_input,
-            retrieved_contexts=retrieved_contexts,
-            reference_contexts=reference_contexts,
-        )
 
-
-class InstanceRubricMetric(MetricBase):
-    """Apply the rubric supplied with each sample."""
+class InstanceRubricMetric(_Rubric):
+    plugin = Plugin("metric", dependencies={"llm": "language_model"})
 
     spec = MetricSpec(
         "metric.custom.instance_rubric",
@@ -145,40 +112,10 @@ class InstanceRubricMetric(MetricBase):
     )
 
     def __init__(self, llm: LanguageModel):
-        self.llm = llm
+        super().__init__(llm)
         self.prompt = InstanceRubricScorePrompt()
 
-    def config_snapshot(self) -> dict[str, Any]:
-        return judge_snapshot(self.llm, prompt_revision=self.spec.revision)
-
-    async def ascore(
-        self,
-        response: str | None = None,
-        rubrics: dict[str, str] | None = None,
-        *,
-        reference: str | None = None,
-        user_input: str | None = None,
-        retrieved_contexts: list[str] | None = None,
-        reference_contexts: list[str] | None = None,
-    ) -> MetricResult:
-        """Grade one sample using its own nonempty rubric."""
-        return await self.ascore_inputs(
-            dict(
-                response=response,
-                rubrics=rubrics,
-                reference=reference,
-                user_input=user_input,
-                retrieved_contexts=retrieved_contexts,
-                reference_contexts=reference_contexts,
-            )
-        )
-
-    async def _ascore_validated(self, **inputs: Any) -> MetricResult:
+    async def ascore(self, **inputs: Any) -> MetricResult:
         prompt = self.prompt.render(InstanceRubricScoreInput.model_construct(**inputs))
-        mark_usage_source("generation", self.llm.plugin_id, self.llm.usage_tracking)
-        verdict = (
-            await run_scoped_score(
-                self.llm.agenerate(prompt, InstanceRubricScoreOutput)
-            )
-        ).data
+        verdict = await self._ask(prompt, InstanceRubricScoreOutput)
         return MetricResult(float(verdict.score), verdict.feedback)

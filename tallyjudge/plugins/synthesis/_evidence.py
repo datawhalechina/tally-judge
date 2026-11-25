@@ -1,27 +1,19 @@
-"""Shared evidence provenance, generation and cancellation handling."""
-
 import asyncio
-import hashlib
 import json
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from collections.abc import Coroutine, Iterable, Mapping
 from copy import deepcopy
 from typing import Any
 
 from pydantic import ConfigDict
 
-from tallyjudge.core._tasks import detach_task
-from tallyjudge.core.dataset import canonical_json
-from tallyjudge.core.errors import ModelError, ModelOutputError
-from tallyjudge.core.execution import run_sync
-from tallyjudge.core.results import ErrorInfo
-from tallyjudge.interfaces.models import LanguageModel
-from tallyjudge.interfaces.synthesis import (
+from tallyjudge.plugins.synthesis._prompts import Persona
+from tallyjudge.plugins.synthesis.contract import (
     SynthesisCandidate,
     SynthesisCollector,
     SynthesisResult,
+    SynthesizerBase,
 )
-from tallyjudge.plugins.synthesis._prompts import Persona
 from tallyjudge.plugins.synthesis.graph import EvidenceGraph
 from tallyjudge.plugins.synthesis.scenarios import (
     EvidenceChunk,
@@ -31,7 +23,13 @@ from tallyjudge.plugins.synthesis.scenarios import (
     SingleHopScenario,
     generate_sample,
 )
-from tallyjudge.registry.specs import EmptyConfig
+from tallyjudge.sdk._tasks import detach_task
+from tallyjudge.sdk.config import EmptyConfig
+from tallyjudge.sdk.dataset import canonical_json, canonical_sha256
+from tallyjudge.sdk.errors import ModelError, ModelOutputError
+from tallyjudge.sdk.gate import gated
+from tallyjudge.sdk.models import LanguageModel
+from tallyjudge.sdk.results import ErrorInfo
 
 
 class ConfiguredPersona(Persona):
@@ -45,17 +43,14 @@ class SamplingConfig(EmptyConfig):
     personas: list[ConfiguredPersona] = []
 
 
-class EvidenceSynthesizer(ABC):
-    """Generate one candidate per selected evidence group, preserving its provenance."""
-
+class EvidenceSynthesizer(SynthesizerBase):
     plugin_id: str
     prompt_revision = "1"
 
     @abstractmethod
     def select(
         self, chunks: Iterable[Mapping[str, Any]], size: int
-    ) -> list[tuple[EvidenceChunk, ...]]:
-        """Return the evidence groups selected under this sampling policy."""
+    ) -> list[tuple[EvidenceChunk, ...]]: ...
 
     def __init__(
         self,
@@ -70,11 +65,10 @@ class EvidenceSynthesizer(ABC):
         self._configure(llm, config)
 
     def _configure(self, llm: LanguageModel, config: SamplingConfig) -> None:
-        self.llm = llm
+        self.llm = gated(llm)
         self.seed, self.personas = config.seed, config.personas
 
     def config_snapshot(self) -> dict[str, Any]:
-        """Identify the selection seed, prompt revision and caller-supplied model."""
         return {
             "seed": self.seed,
             **(
@@ -89,19 +83,6 @@ class EvidenceSynthesizer(ABC):
             },
         }
 
-    def run(
-        self,
-        chunks: Iterable[Mapping[str, Any]],
-        *,
-        testset_size: int,
-        collector: SynthesisCollector | None = None,
-    ) -> SynthesisResult:
-        """Generate synchronously outside an event loop. Use arun with an async client."""
-        return run_sync(
-            lambda: self.arun(chunks, testset_size=testset_size, collector=collector),
-            "arun",
-        )
-
     async def arun(
         self,
         chunks: Iterable[Mapping[str, Any]],
@@ -109,7 +90,6 @@ class EvidenceSynthesizer(ABC):
         testset_size: int,
         collector: SynthesisCollector | None = None,
     ) -> SynthesisResult:
-        """Select without replacement and generate sequentially. Failed candidates keep their usage."""
         if type(testset_size) is not int or testset_size < 0:
             raise ValueError("testset_size must be a nonnegative integer")
         result = SynthesisResult(self.plugin_id, self.config_snapshot(), testset_size)
@@ -117,7 +97,6 @@ class EvidenceSynthesizer(ABC):
         with progress.collect(result):
             if not testset_size:
                 return result
-            # A caller-owned iterator may reuse a mutable row or be bound to this thread.
             source = (
                 chunks
                 if isinstance(chunks, EvidenceGraph)
@@ -137,7 +116,7 @@ class EvidenceSynthesizer(ABC):
                             label for node in evidence for label in node.entities
                         )
                     )
-                identity = canonical_json(
+                case_id = canonical_sha256(
                     [
                         self.plugin_id,
                         result.config_snapshot,
@@ -149,7 +128,6 @@ class EvidenceSynthesizer(ABC):
                         ordinal,
                     ]
                 )
-                case_id = hashlib.sha256(identity.encode("utf-8")).hexdigest()
                 candidate = SynthesisCandidate(
                     case_id,
                     chunk.chunk_id,
@@ -165,7 +143,6 @@ class EvidenceSynthesizer(ABC):
     def _question_style(
         cls, chunks: tuple[EvidenceChunk, ...]
     ) -> type["EvidenceSynthesizer"]:
-        """Select the plugin whose prompt and output schema apply to this evidence."""
         return cls
 
     async def _generate(
@@ -202,7 +179,6 @@ class EvidenceSynthesizer(ABC):
 
 
 async def cancellable[T](work: Coroutine[Any, Any, T]) -> T:
-    """Release the caller if a model transport outlives cancellation."""
     task = asyncio.create_task(work)
     try:
         return await asyncio.shield(task)
@@ -219,7 +195,6 @@ async def generate_candidate(
     *,
     llm_context: str | None = None,
 ) -> None:
-    """Record the generated sample or its model failure on the selected candidate."""
     try:
         record = await cancellable(
             generate_sample(scenario, llm=llm, llm_context=llm_context)

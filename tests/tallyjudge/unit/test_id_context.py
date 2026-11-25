@@ -1,10 +1,8 @@
-"""Public inputs and model-free registration of the document ID metrics."""
-
 import pytest
 
 from tallyjudge import Dataset, Evaluator, MetricBinding, create_metric
-from tallyjudge.core.errors import InputValidationError
 from tallyjudge.registry import registry
+from tallyjudge.sdk.errors import InputValidationError
 
 IDS = ("metric.retrieval.id_context_precision", "metric.retrieval.id_context_recall")
 
@@ -16,7 +14,7 @@ async def test_id_fields_use_strict_types_in_direct_and_bound_calls(plugin_id, i
     metric = create_metric(plugin_id)
     fields = {"retrieved_context_ids": invalid, "reference_context_ids": ["A"]}
     with pytest.raises(InputValidationError) as failure:
-        await metric.ascore(**fields)
+        await metric.ascore_inputs(fields)
     assert failure.value.field == "retrieved_context_ids"
     run = await Evaluator([metric]).arun(Dataset.from_records([fields]))
     score = run.rows[0].metrics[plugin_id]

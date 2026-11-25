@@ -1,1 +1,0 @@
-"""Explicit experiment source identity."""

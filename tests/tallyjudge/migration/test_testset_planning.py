@@ -7,8 +7,6 @@ import pydantic
 import pytest
 
 from tallyjudge import create_synthesizer
-from tallyjudge.core.usage import UsageSummary
-from tallyjudge.interfaces.models import GenerationResult
 from tallyjudge.plugins.synthesis._planning_prompts import (
     DEFAULT_RUBRICS,
     ConceptCombinationPrompt,
@@ -25,8 +23,9 @@ from tallyjudge.plugins.synthesis._planning_prompts import (
 )
 from tallyjudge.plugins.synthesis._prompts import Persona, TextWithExtractionLimit
 from tallyjudge.plugins.synthesis.graph import EvidenceGraph
+from tallyjudge.sdk.models import GenerationResult
+from tallyjudge.sdk.usage import UsageSummary
 
-# Captured by generate_testset_baseline.py in the archived environment.
 ARCHIVED = {
     "HeadlinesExtractorPrompt": [
         "Headlines",

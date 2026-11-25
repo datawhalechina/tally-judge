@@ -1,5 +1,3 @@
-"""Exercise the real SDK against an in-process HTTP transport. No endpoint or key is used."""
-
 import asyncio
 import json
 
@@ -13,8 +11,8 @@ from tallyjudge import (
     create_language_model,
     create_metric,
 )
-from tallyjudge.core.errors import ClientLoopError, ModelError, PluginError
-from tallyjudge.core.prompts import PromptInput
+from tallyjudge.sdk.errors import ClientLoopError, ModelError, PluginError
+from tallyjudge.sdk.prompts import PromptInput
 
 httpx = pytest.importorskip("httpx")
 openai = pytest.importorskip("openai")

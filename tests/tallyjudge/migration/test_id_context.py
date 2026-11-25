@@ -28,7 +28,6 @@ def test_archived_id_scores(retrieved, reference, precision, recall):
     for key, expected in ((PRECISION, precision), (RECALL, recall)):
         score = run.rows[0].metrics[key]
         if isinstance(expected, str):
-            # Both upstream scorers returned NaN for their own empty denominator.
             assert (
                 score.status,
                 score.value,

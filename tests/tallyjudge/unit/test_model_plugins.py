@@ -16,16 +16,16 @@ from tallyjudge import (
     create_language_model,
     create_metric,
 )
-from tallyjudge.core.errors import (
+from tallyjudge.registry import PluginRegistry, PluginSpec, registry
+from tallyjudge.sdk.errors import (
     EvaluationAborted,
     InputValidationError,
     ModelOutputError,
     PluginError,
 )
-from tallyjudge.core.prompts import PromptInput
-from tallyjudge.core.usage import UsageSummary
-from tallyjudge.interfaces.models import EmbeddingResult, GenerationResult
-from tallyjudge.registry import PluginRegistry, PluginSpec, registry
+from tallyjudge.sdk.models import EmbeddingResult, GenerationResult
+from tallyjudge.sdk.prompts import PromptInput
+from tallyjudge.sdk.usage import UsageSummary
 
 CHAT = "model.openai_compatible.chat_completions"
 EMBED = "embedding.openai_compatible.embeddings"
@@ -287,7 +287,7 @@ async def test_cancelled_direct_score_stops_after_a_late_model_reply(
 
 
 @pytest.mark.asyncio
-async def test_custom_untracked_source_and_validation(client):
+async def test_custom_untracked_source_and_validation():
     class Custom:
         plugin_id = "model.test.custom"
         usage_tracking = "untracked"
@@ -362,9 +362,9 @@ async def test_cosine_handles_extreme_finite_components(client):
 async def test_named_scorer_and_evaluator_validate_once_before_requests(
     client, monkeypatch
 ):
-    from tallyjudge.interfaces import metrics
     from tallyjudge.plugins.metrics.rag.answer_relevance import AnswerRelevanceMetric
     from tallyjudge.plugins.metrics.rag.faithfulness import FaithfulnessMetric
+    from tallyjudge.sdk import metrics
 
     checked = []
     validate = metrics.validate_inputs
@@ -380,10 +380,16 @@ async def test_named_scorer_and_evaluator_validate_once_before_requests(
         AnswerRelevanceMetric(language, embeddings),
     )
     with pytest.raises(InputValidationError) as error:
-        await faith.ascore("q", "a", "a single string")
+        await faith.ascore_inputs(
+            {
+                "user_input": "q",
+                "response": "a",
+                "retrieved_contexts": "a single string",
+            }
+        )
     assert error.value.field == "retrieved_contexts"
     with pytest.raises(InputValidationError):
-        await relevance.ascore("", "a")
+        await relevance.ascore_inputs({"user_input": "", "response": "a"})
     with pytest.raises(ValueError, match="strictness"):
         AnswerRelevanceMetric(language, embeddings, strictness=0)
     result = await Evaluator([faith, relevance]).arun(
@@ -397,9 +403,13 @@ async def test_named_scorer_and_evaluator_validate_once_before_requests(
     assert not client.calls
 
 
-def test_misconfigured_lazy_plugin_schema_names_plugin():
-    spec = PluginSpec(FAITH, "metric", 1, "unused:factory", config_type="builtins:str")
-    with pytest.raises(PluginError, match=FAITH):
+def test_misconfigured_plugin_schema_names_plugin():
+    def factory():
+        raise AssertionError("constructed")
+
+    factory.Config = str
+    spec = PluginSpec(FAITH, "metric", 1, factory)
+    with pytest.raises(PluginError, match="schema.*" + FAITH):
         PluginRegistry([spec]).create(FAITH)
 
 

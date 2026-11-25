@@ -8,10 +8,9 @@ import typing as t
 
 from pydantic import BaseModel
 
-from tallyjudge.core.prompts import StructuredPrompt
+from tallyjudge.plugins._prompting import StructuredPrompt
 
 
-# Persona is also an archived output schema. A class docstring changes the model request.
 class Persona(BaseModel):
     name: str
     role_description: str

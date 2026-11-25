@@ -1,5 +1,3 @@
-"""Regressions for the phase 3 commit review, each reproduced from a public entry."""
-
 import asyncio
 import json
 import sqlite3
@@ -27,7 +25,7 @@ from tallyjudge import (
     numeric_metric,
     ranking_metric,
 )
-from tallyjudge.core.errors import ClientLoopError
+from tallyjudge.sdk.errors import ClientLoopError
 
 EXACT = "metric.text.exact_match"
 
@@ -69,7 +67,6 @@ async def test_locked_cache_does_not_block_the_event_loop_or_outer_timeout(tmp_p
     finally:
         release.set()
         holder.join()
-    # The lock was held far longer; both deadlines must fire close to schedule.
     assert elapsed < 0.2, elapsed
     assert timer_delay < 0.2, timer_delay
 
@@ -164,6 +161,7 @@ def test_old_function_archive_still_enforces_its_declared_range(stores_function_
     key = bounded.spec.id
     result = Evaluator([bounded()]).run(one_row(response="a"))
     old = result.to_dict()
+    old["schema_version"] = 2
     del old["metrics"][key]["value_range"]
     if not stores_function_name:
         del old["metrics"][key]["config_snapshot"]["function"]
@@ -178,7 +176,7 @@ def test_old_function_archive_still_enforces_its_declared_range(stores_function_
 
 def test_comparison_distinguishes_bounded_and_unbounded_scores():
     from tallyjudge import MetricResult
-    from tallyjudge.interfaces.metrics import MetricBase, MetricSpec
+    from tallyjudge.sdk.metrics import MetricBase, MetricSpec
 
     class Score(MetricBase):
         def __init__(self, bounds, levels=()):
@@ -225,7 +223,6 @@ def test_redacted_experiment_runs_remain_comparable(keep):
     for result in runs:
         result.save(backend=store, include_inputs=keep)
     plain, echoed, shouted = (store.load_run(r.run_id) for r in runs)
-    # A plain evaluation against an experiment that passes the answer through.
     same = compare_runs(plain, echoed).rows[0].metrics[EXACT]
     changed = compare_runs(plain, shouted).rows[0].metrics[EXACT]
     assert (same.changes, same.delta) == ((), 0.0)
@@ -276,38 +273,12 @@ def test_archives_apply_the_saved_output_contract(tmp_path, factory, bad):
         store.load_run(result.run_id)
 
 
-class _Completions:
-    async def create(self, **kwargs):
-        class Message:
-            content = '{"statements": []}'
-            refusal = None
-            tool_calls = None
-
-        class Choice:
-            message = Message()
-            finish_reason = "stop"
-
-        class Response:
-            choices = [Choice()]
-            model = "judge"
-            usage = None
-
-        return Response()
-
-
-class _Client:
-    def __init__(self):
-        self.chat = type("Chat", (), {"completions": _Completions()})()
-        self.embeddings = _Completions()
-
-    def with_options(self, **kwargs):
-        return self
-
-
-def test_client_bound_to_another_loop_aborts_the_run_once(caplog):
+def test_client_bound_to_another_loop_aborts_the_run_once(client, caplog):
+    for _ in range(5):
+        client.chat_reply('{"statements": []}')
     judge = create_language_model(
         "model.openai_compatible.chat_completions",
-        client=_Client(),
+        client=client,
         model="judge",
         temperature=0.0,
     )
@@ -348,8 +319,8 @@ def test_event_sink_keeps_one_handle_per_run_and_closes_it(tmp_path, monkeypatch
 
 
 def test_event_sink_closes_healthy_writer_when_another_file_fails(tmp_path):
-    from tallyjudge.core.events import RunEvent
     from tallyjudge.plugins.tracing.jsonl import JsonlEventSink
+    from tallyjudge.sdk.events import RunEvent
 
     sink = JsonlEventSink(root=tmp_path)
     (tmp_path / "events-broken.jsonl").mkdir()
@@ -367,16 +338,17 @@ def test_event_sink_closes_healthy_writer_when_another_file_fails(tmp_path):
         sink.close()
 
 
-def test_cross_loop_model_from_experiment_aborts_once():
+def test_cross_loop_model_from_experiment_aborts_once(client):
     from pydantic import BaseModel
 
-    from tallyjudge.core.prompts import PromptInput
+    from tallyjudge.sdk.prompts import PromptInput
 
     class Verdict(BaseModel):
         statements: list[str]
 
+    client.chat_reply('{"statements": []}')
     judge = create_language_model(
-        "model.openai_compatible.chat_completions", client=_Client(), model="judge"
+        "model.openai_compatible.chat_completions", client=client, model="judge"
     )
 
     @experiment
@@ -398,6 +370,7 @@ def test_cross_loop_model_from_experiment_aborts_once():
 @pytest.mark.asyncio
 async def test_cancellation_shares_one_grace_with_cache_and_partial_storage():
     writing = threading.Event()
+    waiting = threading.Event()
     release = threading.Event()
 
     class SlowCache:
@@ -417,6 +390,7 @@ async def test_cancellation_shares_one_grace_with_cache_and_partial_storage():
     @numeric_metric("metric.test.wait", revision="1")
     async def wait(response: str):
         if response == "second":
+            waiting.set()
             try:
                 await asyncio.Event().wait()
             except asyncio.CancelledError:
@@ -435,6 +409,7 @@ async def test_cancellation_shares_one_grace_with_cache_and_partial_storage():
     )
     try:
         assert await asyncio.to_thread(writing.wait, 2)
+        assert await asyncio.to_thread(waiting.wait, 2)
         before = time.monotonic()
         task.cancel("original")
         with pytest.raises(asyncio.CancelledError, match="original"):

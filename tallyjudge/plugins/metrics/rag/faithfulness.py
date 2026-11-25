@@ -1,15 +1,18 @@
 """Faithfulness scoring and original prompts from Ragas ec00339 (Apache-2.0)."""
 
 import logging
-from typing import Annotated
+from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
-from tallyjudge.core.errors import UndefinedScore
-from tallyjudge.core.prompts import StructuredPrompt
-from tallyjudge.core.results import MetricResult
-from tallyjudge.interfaces.metrics import MetricSpec
-from tallyjudge.plugins.metrics.rag._judge import RagJudge
+from tallyjudge.plugins._prompting import StructuredPrompt
+from tallyjudge.plugins.metrics._judge import ModelJudge
+from tallyjudge.plugins.metrics.rag._inputs import required_text_inputs
+from tallyjudge.sdk.errors import ModelOutputError, UndefinedScore
+from tallyjudge.sdk.metrics import MetricSpec
+from tallyjudge.sdk.models import LanguageModel
+from tallyjudge.sdk.plugin import Plugin
+from tallyjudge.sdk.results import MetricResult
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +37,6 @@ class StatementGeneratorOutput(BaseModel):
 class StatementGeneratorPrompt(
     StructuredPrompt[StatementGeneratorInput, StatementGeneratorOutput]
 ):
-    """Prompt for breaking down answers into atomic statements."""
-
     input_model = StatementGeneratorInput
     output_model = StatementGeneratorOutput
 
@@ -87,8 +88,6 @@ class NLIStatementOutput(BaseModel):
 
 
 class NLIStatementPrompt(StructuredPrompt[NLIStatementInput, NLIStatementOutput]):
-    """Prompt for evaluating statement faithfulness against context using NLI."""
-
     input_model = NLIStatementInput
     output_model = NLIStatementOutput
 
@@ -133,33 +132,31 @@ class NLIStatementPrompt(StructuredPrompt[NLIStatementInput, NLIStatementOutput]
     ]
 
 
-class FaithfulnessMetric(RagJudge):
-    """Score the fraction of returned NLI verdicts supported by the retrieved contexts."""
+class FaithfulnessConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    revision: Literal["1", "2"] = "2"
 
-    spec = MetricSpec(
-        "metric.rag.faithfulness",
-        "1",
-        {
-            "user_input": Annotated[str, Field(min_length=1)],
-            "response": Annotated[str, Field(min_length=1)],
-            "retrieved_contexts": Annotated[list[str], Field(min_length=1)],
-        },
-        value_range=(0.0, 1.0),
-    )
 
-    async def ascore(
-        self, user_input: str, response: str, retrieved_contexts: list[str]
-    ) -> MetricResult:
-        """Score one answer against a nonempty list of retrieved contexts."""
-        return await self.ascore_inputs(
-            {
-                "user_input": user_input,
-                "response": response,
-                "retrieved_contexts": retrieved_contexts,
-            }
+class FaithfulnessMetric(ModelJudge):
+    plugin = Plugin("metric", dependencies={"llm": "language_model"})
+    plugin_id = "metric.rag.faithfulness"
+    Config = FaithfulnessConfig
+
+    @staticmethod
+    def spec_from_config(*, revision: str = "2") -> MetricSpec:
+        return MetricSpec(
+            FaithfulnessMetric.plugin_id,
+            revision,
+            required_text_inputs("user_input", "response", passages=True),
+            value_range=(0.0, 1.0),
         )
 
-    async def _score(
+    def __init__(self, llm: LanguageModel, revision: str = "2"):
+        super().__init__(llm)
+        config = FaithfulnessConfig.model_validate({"revision": revision})
+        self.spec = self.spec_from_config(revision=config.revision)
+
+    async def ascore(
         self, user_input: str, response: str, retrieved_contexts: list[str]
     ) -> MetricResult:
         prompt = StatementGeneratorPrompt().render(
@@ -176,11 +173,21 @@ class FaithfulnessMetric(RagJudge):
         verdicts = (await self._ask(prompt, NLIStatementOutput)).statements
         if not verdicts:
             raise UndefinedScore("no_verdicts")
+        score = sum(item.verdict for item in verdicts) / len(verdicts)
+        if self.spec.revision == "1":
+            return MetricResult(score)
         if len(verdicts) != len(statements):
-            logger.warning(
-                "Faithfulness received %d verdicts for %d statements",
-                len(verdicts),
-                len(statements),
-            )
-        # Revision 1 uses the number of returned verdicts, including when some are missing.
-        return MetricResult(sum(item.verdict for item in verdicts) / len(verdicts))
+            raise ModelOutputError("verdict_count")
+        return MetricResult(
+            score,
+            details={
+                "statements": [
+                    {
+                        "statement": statement,
+                        "supported": bool(item.verdict),
+                        "reason": item.reason,
+                    }
+                    for statement, item in zip(statements, verdicts, strict=True)
+                ]
+            },
+        )

@@ -1,5 +1,3 @@
-"""Versioned prompt experiment comparison and historical archive reads."""
-
 import asyncio
 
 import pytest
@@ -17,7 +15,7 @@ from tallyjudge import (
     experiment,
     numeric_metric,
 )
-from tallyjudge.core.dataset import arguments_sha256
+from tallyjudge.sdk.dataset import arguments_sha256
 
 ROWS = [
     {"case_id": "a", "user_input": "days?", "reference": "14"},
@@ -44,7 +42,7 @@ def test_pairing_uses_source_and_judge_but_allows_business_answer_changes(tmp_pa
     left = first.run(dataset, metrics=[metric], backend=backend, include_inputs=False)
     right = second.run(Dataset.from_records(reversed(ROWS)), metrics=[metric])
     restored = backend.load_run(left.run_id)
-    assert restored.schema_version == 3 and restored.inputs is None
+    assert restored.schema_version == 4 and restored.inputs is None
     assert restored.metadata == {"prompt_version": "v1", "model": {"name": "local"}}
     paired = compare_experiments(restored, right)
     values = paired.metrics[metric.spec.id]
@@ -65,8 +63,7 @@ def test_pairing_uses_source_and_judge_but_allows_business_answer_changes(tmp_pa
         archive.pop("metadata")
         archive["schema_version"] = version
         old = RunResult.from_dict(archive)
-        assert old.metadata is None and "metadata" not in old.to_dict()
-        assert ("usage" in old.to_dict()) == (version == 2)
+        assert old.schema_version == 4 and old.metadata is None
 
 
 def test_experiment_keeps_dataset_reference_and_reports_missing_and_skipped_rows():
@@ -118,9 +115,9 @@ async def test_cancelled_experiment_saves_metadata():
     )
 
 
-def test_lower_score_counts_as_improvement_and_reference_alias_is_protected():
-    from tallyjudge.core.results import MetricResult
-    from tallyjudge.interfaces.metrics import MetricBase, MetricSpec
+def test_lower_score_counts_as_improvement():
+    from tallyjudge.sdk.metrics import MetricBase, MetricSpec
+    from tallyjudge.sdk.results import MetricResult
 
     class Loss(MetricBase):
         spec = MetricSpec(
@@ -159,6 +156,8 @@ def test_lower_score_counts_as_improvement_and_reference_alias_is_protected():
         ("user_input", "loan?", "hours?"),
         ("reference_contexts", ["14 days"], ["30 days"]),
         ("reference_context_ids", ["A"], ["B"]),
+        ("expected_tools", ["lookup"], ["refund"]),
+        ("forbidden_tools", ["refund"], []),
     ],
 )
 def test_question_and_reference_columns_stay_fixed_in_custom_bindings(
@@ -377,7 +376,7 @@ def test_one_retained_original_can_only_reconstruct_matching_old_controls(revers
     assert pair.metrics[metric.spec.id].mean_delta == (None if reverse else 1.0)
 
 
-def test_experiment_hashes_stay_out_of_ordinary_and_historical_exports():
+def test_experiment_hashes_stay_out_of_ordinary_exports():
     metric = create_metric("metric.text.exact_match")
     dataset = Dataset.from_records([{"case_id": 1, "response": "a", "reference": "a"}])
     plain = Evaluator([metric]).run(dataset)
@@ -389,10 +388,6 @@ def test_experiment_hashes_stay_out_of_ordinary_and_historical_exports():
         "response",
         "reference",
     }
-    for version in (1, 2):
-        data["schema_version"] = version
-        old = RunResult.from_dict(data)
-        assert "input_sha256_by_name" not in old.to_dict()["rows"][0]["metrics"][key]
 
 
 def test_pair_mean_preserves_large_finite_deltas():

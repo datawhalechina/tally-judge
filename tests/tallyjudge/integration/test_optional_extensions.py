@@ -1,5 +1,3 @@
-"""Optional exports, token-aware splitting and explicit experiment source metadata."""
-
 import json
 import subprocess
 
@@ -51,7 +49,6 @@ def test_local_tokenizers_as_chunk_size(tmp_path, monkeypatch):
     codec.pre_tokenizer = hf.pre_tokenizers.Whitespace()
     path = tmp_path / "tokenizer.json"
     codec.save(str(path))
-    # A real byte-level tiktoken encoding needs no model download.
     local = tk.Encoding(
         name="bytes",
         pat_str=r"(?s).",

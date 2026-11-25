@@ -16,12 +16,14 @@ from pydantic import (
     model_validator,
 )
 
-from tallyjudge.core.prompts import PromptInput, StructuredPrompt
-from tallyjudge.core.results import MetricResult
-from tallyjudge.core.usage import mark_usage_source, run_scoped_score
-from tallyjudge.interfaces.metrics import MetricBase, MetricSpec
-from tallyjudge.interfaces.models import LanguageModel
-from tallyjudge.plugins.metrics.custom._model import judge_snapshot, rule_digest
+from tallyjudge.plugins._prompting import StructuredPrompt
+from tallyjudge.plugins.metrics._judge import ModelJudge
+from tallyjudge.sdk.dataset import canonical_sha256
+from tallyjudge.sdk.metrics import MetricSpec
+from tallyjudge.sdk.models import LanguageModel
+from tallyjudge.sdk.plugin import Plugin
+from tallyjudge.sdk.prompts import PromptInput
+from tallyjudge.sdk.results import MetricResult
 
 
 class JudgeConfig(BaseModel):
@@ -80,7 +82,6 @@ class Vote(BaseModel):
 
 
 def _choice_vote(value_type: type, choices: tuple) -> type[Vote]:
-    # Include the same choices in the prompt schema and the structured retry validator.
     def declared_value(value: int | str) -> int | str:
         if value not in choices:
             raise ValueError("Choose a declared verdict")
@@ -103,52 +104,28 @@ class _JudgePrompt(StructuredPrompt[JudgeInput, Vote]):
         self.output_model = output
 
 
-class _JudgeMetric(MetricBase):
-    def __init__(
-        self, llm: LanguageModel, criteria: str, strictness: int, output: type[Vote]
-    ):
-        self.llm = llm
-        self.strictness = strictness
-        self._criteria_digest = rule_digest(criteria)
-        self.prompt = _JudgePrompt(criteria, output)
+class _JudgeMetric(ModelJudge):
+    def __init__(self, llm: LanguageModel, config: JudgeConfig, output: type[Vote]):
+        super().__init__(llm)
+        self.strictness = config.strictness
+        self._criteria_digest = canonical_sha256(config.criteria)
+        self.prompt = _JudgePrompt(config.criteria, output)
 
     def config_snapshot(self) -> dict[str, Any]:
         return {
-            **judge_snapshot(self.llm),
+            **super().config_snapshot(),
             "criteria_sha256": self._criteria_digest,
             "strictness": self.strictness,
         }
 
-    async def ascore(
-        self,
-        response: str,
-        *,
-        user_input: str | None = None,
-        reference: str | None = None,
-        retrieved_contexts: list[str] | None = None,
-    ) -> MetricResult:
-        """Judge one response using the supplied question, reference and retrieved evidence."""
-        return await self.ascore_inputs(
-            {
-                "response": response,
-                "user_input": user_input,
-                "reference": reference,
-                "retrieved_contexts": retrieved_contexts,
-            }
-        )
-
-    async def _ascore_validated(self, **inputs: Any) -> MetricResult:
+    async def ascore(self, **inputs: Any) -> MetricResult:
         prompt = self.prompt.render(JudgeInput.model_construct(**inputs))
-        return await run_scoped_score(self._vote(prompt))
+        return await self._vote(prompt)
 
     async def _vote(self, prompt: PromptInput) -> MetricResult:
         votes = []
         for _ in range(self.strictness):
-            mark_usage_source("generation", self.llm.plugin_id, self.llm.usage_tracking)
-            votes.append(
-                (await self.llm.agenerate(prompt, self.prompt.output_model)).data
-            )
-        # Counter retains insertion order for ties; use the first winning reason as well.
+            votes.append(await self._ask(prompt, self.prompt.output_model))
         winner = Counter(vote.value for vote in votes).most_common(1)[0][0]
         reason = next(vote.reason for vote in votes if vote.value == winner)
         return MetricResult(
@@ -157,11 +134,13 @@ class _JudgeMetric(MetricBase):
 
 
 class NumericMetric(_JudgeMetric):
-    """Return a bounded continuous score or vote among explicit integer levels."""
+    plugin = Plugin("metric", dependencies={"llm": "language_model"})
+    plugin_id = "metric.custom.numeric"
+
+    Config = NumericConfig
 
     @property
     def levels(self) -> tuple[int, ...] | None:
-        """Return the discrete grades, or None for a continuous score."""
         return self.spec.levels or None
 
     @staticmethod
@@ -177,7 +156,7 @@ class NumericMetric(_JudgeMetric):
             else value_range or (0.0, 1.0)
         )
         return MetricSpec(
-            "metric.custom.numeric",
+            NumericMetric.plugin_id,
             "1",
             _INPUTS,
             defaults=_DEFAULTS,
@@ -212,7 +191,7 @@ class NumericMetric(_JudgeMetric):
             )
         else:
             output = _choice_vote(int, self.spec.levels)
-        super().__init__(llm, config.criteria, config.strictness, output)
+        super().__init__(llm, config, output)
 
     def config_snapshot(self) -> dict[str, Any]:
         result = super().config_snapshot()
@@ -223,12 +202,15 @@ class NumericMetric(_JudgeMetric):
 
 
 class CategoricalMetric(_JudgeMetric):
-    """Vote among the configured labels and preserve the winning label as text."""
+    plugin = Plugin("metric", dependencies={"llm": "language_model"})
+    plugin_id = "metric.custom.categorical"
+
+    Config = CategoricalConfig
 
     @staticmethod
     def spec_from_config(*, labels: list[str], **settings: Any) -> MetricSpec:
         return MetricSpec(
-            "metric.custom.categorical",
+            CategoricalMetric.plugin_id,
             "1",
             _INPUTS,
             defaults=_DEFAULTS,
@@ -245,12 +227,12 @@ class CategoricalMetric(_JudgeMetric):
         strictness: int = 1,
     ):
         config = CategoricalConfig(
-            criteria=criteria, labels=labels, strictness=strictness
+            criteria=criteria,
+            labels=labels,
+            strictness=strictness,
         )
         self.spec = self.spec_from_config(labels=config.labels)
-        super().__init__(
-            llm, config.criteria, config.strictness, _choice_vote(str, self.spec.labels)
-        )
+        super().__init__(llm, config, _choice_vote(str, self.spec.labels))
 
     def config_snapshot(self) -> dict[str, Any]:
         return {**super().config_snapshot(), "labels": list(self.spec.labels)}

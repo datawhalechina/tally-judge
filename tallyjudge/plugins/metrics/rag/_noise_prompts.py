@@ -6,7 +6,6 @@ from functools import cache
 
 @cache
 def output_models():
-    """Build the response models used by the two archived prompt functions."""
     from pydantic import BaseModel, Field
 
     class StatementGeneratorOutput(BaseModel):
@@ -30,7 +29,6 @@ def output_models():
 
 
 def statement_generator_prompt(question: str, answer: str) -> str:
-    """Render the archived statement decomposition request."""
     safe_question = json.dumps(question)
     safe_answer = json.dumps(answer)
 
@@ -63,7 +61,6 @@ Output: """
 
 
 def nli_statement_prompt(context: str, statements: list[str]) -> str:
-    """Render the archived statement entailment request."""
     safe_context = json.dumps(context)
     safe_statements = json.dumps(statements, indent=4).replace("\n", "\n    ")
 

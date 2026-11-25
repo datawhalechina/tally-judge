@@ -1,5 +1,3 @@
-"""From local text files through archived graph strategies to two retrieval runs."""
-
 import asyncio
 import hashlib
 import json
@@ -12,14 +10,15 @@ from uuid import UUID
 import pytest
 
 from tallyjudge import SynthesisCollector, create_metric, create_synthesizer, experiment
-from tallyjudge.core.usage import Usage, UsageSummary, record_request
-from tallyjudge.interfaces.models import EmbeddingResult, GenerationResult
-from tallyjudge.interfaces.synthesis import SourceDocument
 from tallyjudge.plugins.synthesis.graph import EvidenceGraph
 from tallyjudge.plugins.synthesis.transforms import (
     build_chunk_graph,
     build_document_graph,
 )
+from tallyjudge.sdk.documents import SourceDocument
+from tallyjudge.sdk.gate import record_request
+from tallyjudge.sdk.models import EmbeddingResult, GenerationResult
+from tallyjudge.sdk.usage import Usage, UsageSummary
 
 SINGLE = "single_hop_specific_query_synthesizer"
 ABSTRACT = "multi_hop_abstract_query_synthesizer"
@@ -233,7 +232,6 @@ async def test_files_to_three_query_strategies_to_paired_retrieval(tmp_path):
 async def test_corpus_length_bins_and_summary_cosine_cutoffs():
     pytest.importorskip("rapidfuzz")
     model = CorpusModel()
-    # Cosine 0.6 clears the medium threshold but falls below the prechunked threshold.
     emb = Embeddings({TEXT[1]: [0.6, 0.8]})
     docs = [
         SourceDocument(str(i), s + " pad" * 110, page=7) for i, s in enumerate(TEXT[:2])

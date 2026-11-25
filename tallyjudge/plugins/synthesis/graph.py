@@ -18,9 +18,6 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from tallyjudge.core.errors import ModelOutputError
-from tallyjudge.core.usage import UsageSummary, mark_usage_source, run_scoped_score
-from tallyjudge.interfaces.models import EmbeddingModel, LanguageModel
 from tallyjudge.plugins._vectors import unit_vector
 from tallyjudge.plugins.synthesis._prompts import (
     NEROutput,
@@ -28,6 +25,10 @@ from tallyjudge.plugins.synthesis._prompts import (
     TextWithExtractionLimit,
 )
 from tallyjudge.plugins.synthesis.scenarios import EvidenceChunk
+from tallyjudge.sdk.errors import ModelOutputError
+from tallyjudge.sdk.gate import gated
+from tallyjudge.sdk.models import EmbeddingModel, LanguageModel
+from tallyjudge.sdk.usage import UsageSummary
 
 
 class EvidenceRelation(BaseModel):
@@ -54,8 +55,6 @@ class _TypedGraphSnapshot(_GraphSnapshot):
 
 @dataclass(init=False)
 class EvidenceGraph:
-    """An owned snapshot of chunk records and undirected evidence pairs."""
-
     _records: dict[str, dict[str, Any]]
     _relations: tuple[tuple[str, str], ...]
     _relationships: tuple[EvidenceRelation, ...]
@@ -96,38 +95,31 @@ class EvidenceGraph:
 
     @cached_property
     def _evidence(self) -> dict[str, EvidenceChunk]:
-        """Validate the scoring fields once when a generation or embedding needs them."""
         return {
             key: EvidenceChunk.model_validate(row) for key, row in self._records.items()
         }
 
     @property
     def chunks(self) -> tuple[Mapping[str, Any], ...]:
-        """Return detached records, including original offsets and metadata."""
         return tuple(self)
 
     @property
     def relations(self) -> tuple[tuple[str, str], ...]:
-        """Return the canonical undirected edges."""
         return self._relations
 
     @property
     def relationships(self) -> tuple[EvidenceRelation, ...]:
-        """Return typed links without merging independent relationships between two nodes."""
         return deepcopy(self._relationships)
 
     @property
     def embedding_usage(self) -> UsageSummary | None:
-        """Return usage from constructing a similarity graph."""
         return self._embedding_usage
 
     @property
     def generation_usage(self) -> UsageSummary:
-        """Return model usage for the language-model transforms that built this graph."""
         return self._generation_usage
 
     def to_dict(self) -> dict[str, Any]:
-        """Export the evidence, relations and original build usage for JSON storage."""
         return {
             "schema_version": 2,
             "relationships": [
@@ -145,7 +137,6 @@ class EvidenceGraph:
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "EvidenceGraph":
-        """Restore a native graph snapshot without extracting entities or embedding again."""
         version = data["schema_version"]
         if type(version) is not int or version not in (1, 2):
             raise ValueError(f"Unsupported evidence graph schema version: {version!r}")
@@ -170,7 +161,6 @@ class EvidenceGraph:
         *,
         relation_types: tuple[str, ...] = ("entities_overlap", "summary_similarity"),
     ) -> "EvidenceGraph":
-        """Read archival KnowledgeGraph.save JSON with node IDs and explicit relation types."""
         edges = data["relationships"]
         parents = {
             rel["target"]: rel["source"] for rel in edges if rel["type"] == "child"
@@ -205,7 +195,6 @@ class EvidenceGraph:
         pairs = [
             (edge.source, edge.target) for edge in typed if edge.type in relation_types
         ]
-        # KnowledgeGraph.save records nodes and edges but no historical request totals.
         return cls(
             chunks,
             pairs,
@@ -227,8 +216,6 @@ def _overlap_distance() -> Callable[[str, str], float]:
 
 
 def entity_overlaps(chunks: Iterable[Mapping[str, Any]]) -> list[EvidenceRelation]:
-    """Compute archived overlap scores and retain matching pairs in their original spelling."""
-    # OverlapScoreBuilder (Ragas ec00339) ignores the most frequent 5% of all entity labels.
     rows = [(str(row["chunk_id"]), row.get("entities", ())) for row in chunks]
     counts = Counter(label for _, labels in rows for label in labels)
     noisy = {label for label, _ in counts.most_common(max(1, len(counts) // 20))}
@@ -268,7 +255,6 @@ def entity_overlaps(chunks: Iterable[Mapping[str, Any]]) -> list[EvidenceRelatio
 def build_graph(
     chunks: Iterable[Mapping[str, Any]], *, indirect: bool = False
 ) -> EvidenceGraph:
-    """Connect entity overlaps using the archived frequency and similarity thresholds. Leiden community pairs require the graph extra."""
     evidence = EvidenceGraph(chunks, ())
     overlaps = entity_overlaps(evidence._records.values())
     evidence._relationships = tuple(overlaps)
@@ -293,10 +279,8 @@ def build_graph(
 
 
 def extraction_windows(text: str, limit: int) -> Iterable[str]:
-    """Yield the original extractor's o200k_base token windows."""
     if not text:
         return
-    # One token consumes at least one UTF-8 byte. Ordinary short chunks round-trip unchanged.
     if len(text.encode("utf-8")) <= limit:
         yield text
         return
@@ -312,11 +296,7 @@ async def build_entity_graph(
     llm: LanguageModel,
     max_token_limit: int = 32000,
 ) -> EvidenceGraph:
-    """Extract missing labels from individual chunks and connect shared mentions.
-
-    Preannotated chunks retain their labels. For a multi-chunk graph requiring
-    extraction, check the overlap dependency before dispatching model requests.
-    """
+    llm = gated(llm)
     evidence = EvidenceGraph(chunks, ())
     if max_token_limit < 1:
         raise ValueError("max_token_limit must be positive")
@@ -327,12 +307,9 @@ async def build_entity_graph(
     for record in missing:
         entities = []
         for window in extraction_windows(record["text"], max_token_limit):
-            mark_usage_source("generation", llm.plugin_id, llm.usage_tracking)
-            reply = await run_scoped_score(
-                llm.agenerate(
-                    template.render(TextWithExtractionLimit(text=window, max_num=10)),
-                    NEROutput,
-                )
+            reply = await llm.agenerate(
+                template.render(TextWithExtractionLimit(text=window, max_num=10)),
+                NEROutput,
             )
             entities.extend(reply.data.entities)
             evidence._generation_usage.add(reply.usage)
@@ -366,17 +343,14 @@ async def build_similarity_graph(
     embeddings: EmbeddingModel,
     threshold: float = 0.8,
 ) -> EvidenceGraph:
-    """Embed a batch once and connect pairs meeting the signed cosine threshold."""
     if not -1 <= threshold <= 1:
         raise ValueError("threshold must be within [-1, 1]")
     evidence = EvidenceGraph(chunks, ())
     nodes = list(evidence._evidence.values())
     if len(nodes) < 2:
         return evidence
-    mark_usage_source("embedding", embeddings.plugin_id, embeddings.usage_tracking)
-    batch = await run_scoped_score(
-        embeddings.aembed_texts([node.text for node in nodes])
-    )
+    embeddings = gated(embeddings)
+    batch = await embeddings.aembed_texts([node.text for node in nodes])
     pairs = await asyncio.to_thread(_similarity_pairs, nodes, batch.vectors, threshold)
     evidence._set_relations(pairs)
     usage = UsageSummary(complete=embeddings.usage_tracking == "per_request")

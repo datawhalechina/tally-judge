@@ -28,6 +28,12 @@ runs/
 # Temporary working notes (see AGENTS.md)
 _experiments/
 
+# Design notes and standards kept outside the repository
+plan/
+
+# Calibration sets stay local until their labels are reviewed
+calibration/
+
 # Editors and agents
 .idea/
 .vscode/

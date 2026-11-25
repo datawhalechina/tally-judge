@@ -1,31 +1,27 @@
-"""Explicit registration and lazy, validated plugin construction."""
-
 import importlib
-from collections.abc import Iterable
-from importlib.metadata import PackageNotFoundError, distribution
+import inspect
+import logging
+import os
+from collections.abc import Callable, Iterable
+from importlib.metadata import PackageNotFoundError, distribution, entry_points
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
-from tallyjudge.core.errors import PluginError
-from tallyjudge.interfaces.cache import ScoreCache
-from tallyjudge.interfaces.events import EventSink
-from tallyjudge.interfaces.metrics import MetricSpec
-from tallyjudge.interfaces.optimization import PromptOptimizer
-from tallyjudge.interfaces.storage import StorageBackend
-from tallyjudge.interfaces.synthesis import Synthesizer
-from tallyjudge.registry.specs import PluginSpec
-
-_PLUGIN_CONTRACTS = {
-    "synthesis": Synthesizer,
-    "optimization": PromptOptimizer,
-    "storage": StorageBackend,
-    "cache": ScoreCache,
-    "event": EventSink,
-}
+from tallyjudge.sdk.analysis import Analyzer
+from tallyjudge.sdk.cache import ScoreCache
+from tallyjudge.sdk.config import EmptyConfig
+from tallyjudge.sdk.errors import PluginError
+from tallyjudge.sdk.events import EventSink
+from tallyjudge.sdk.gate import gated
+from tallyjudge.sdk.importing import PRODUCTS, Importer
+from tallyjudge.sdk.metrics import MetricSpec
+from tallyjudge.sdk.plugin import KindSpec, PluginSpec
+from tallyjudge.sdk.running import Runner
+from tallyjudge.sdk.storage import StorageBackend
 
 
-def _load(symbol: Any, plugin_id: str) -> Any:
+def _load(symbol: Any, owner: str, what: str = "plugin factory") -> Any:
     if not isinstance(symbol, str):
         return symbol
     try:
@@ -35,17 +31,15 @@ def _load(symbol: Any, plugin_id: str) -> Any:
             raise TypeError
         return obj
     except Exception as exc:
-        raise PluginError(
-            f"Cannot load the configured plugin factory or schema: {plugin_id}"
-        ) from exc
+        raise PluginError(f"Cannot load the configured {what}: {owner}") from exc
 
 
-def _matches_model(value: Any, kind: str) -> bool:
-    method = {"language_model": "agenerate", "embedding_model": "aembed_texts"}.get(
-        kind
-    )
-    if method is None:
-        return False
+logger = logging.getLogger(__name__)
+
+_MODEL_METHODS = {"language_model": "agenerate", "embedding_model": "aembed_texts"}
+
+
+def _is_model(value: Any, method: str) -> bool:
     plugin_id = getattr(value, "plugin_id", None)
     return (
         isinstance(plugin_id, str)
@@ -56,8 +50,43 @@ def _matches_model(value: Any, kind: str) -> bool:
     )
 
 
-def _config_schema(spec: PluginSpec) -> type[BaseModel]:
-    schema = _load(spec.config_type, spec.id)
+def _is_metric(plugin: Any, plugin_id: str) -> bool:
+    spec = getattr(plugin, "spec", None)
+    return (
+        isinstance(spec, MetricSpec)
+        and spec.id == plugin_id
+        and callable(getattr(plugin, "ascore_inputs", None))
+        and callable(getattr(plugin, "config_snapshot", None))
+    )
+
+
+def _model(method: str) -> Callable[[Any, str], bool]:
+    return lambda plugin, plugin_id: (
+        _is_model(plugin, method) and plugin.plugin_id == plugin_id
+    )
+
+
+def _implements(contract: type) -> Callable[[Any, str], bool]:
+    return lambda plugin, plugin_id: (
+        isinstance(plugin, contract) and plugin.plugin_id == plugin_id
+    )
+
+
+KINDS: dict[str, Callable[[Any, str], bool]] = {
+    "metric": _is_metric,
+    "model": _model("agenerate"),
+    "embedding": _model("aembed_texts"),
+    "storage": _implements(StorageBackend),
+    "cache": _implements(ScoreCache),
+    "event": _implements(EventSink),
+    "importer": _implements(Importer),
+    "runner": _implements(Runner),
+    "analyzer": _implements(Analyzer),
+}
+
+
+def _config_schema(factory: Any, spec: PluginSpec) -> type[BaseModel]:
+    schema = getattr(factory, "Config", EmptyConfig)
     if not isinstance(schema, type) or not issubclass(schema, BaseModel):
         raise PluginError(f"Configuration schema must be a Pydantic model: {spec.id}")
     return schema
@@ -71,17 +100,17 @@ def _invalid_config(spec: PluginSpec, exc: ValidationError) -> PluginError:
     return PluginError(f"Invalid plugin configuration: {spec.id}{detail}")
 
 
-def _settings(
-    spec: PluginSpec,
-    schema: type[BaseModel],
-    raw: dict[str, Any],
-    *,
-    for_factory: bool = False,
-) -> dict[str, Any]:
+def _reject_unknown(
+    spec: PluginSpec, schema: type[BaseModel], raw: dict[str, Any]
+) -> None:
     if raw.keys() - schema.model_fields.keys():
         raise PluginError(f"Unknown plugin configuration fields: {spec.id}")
-    if for_factory and spec.factory_validates_config:
-        return raw
+
+
+def _validated(
+    spec: PluginSpec, schema: type[BaseModel], raw: dict[str, Any]
+) -> dict[str, Any]:
+    _reject_unknown(spec, schema, raw)
     try:
         validated = schema.model_validate(raw, strict=True)
     except ValidationError as exc:
@@ -92,40 +121,86 @@ def _settings(
 class PluginRegistry:
     """Map stable plugin IDs to lazily loaded factories and their configuration."""
 
-    def __init__(self, specs: Iterable[PluginSpec] = ()) -> None:
+    def __init__(
+        self,
+        specs: Iterable[PluginSpec | KindSpec] = (),
+        *,
+        entry_point_group: str | None = None,
+    ) -> None:
         self._specs: dict[str, PluginSpec] = {}
+        self._kinds: dict[str, KindSpec] = {}
+        self._entry_point_group = entry_point_group
         for spec in specs:
             self.register(spec)
 
-    def register(self, spec: PluginSpec, *, replace: bool = False) -> None:
+    def _discover(self) -> None:
+        group, self._entry_point_group = self._entry_point_group, None
+        if group is None:
+            return
+        allowed = os.environ.get("TALLYJUDGE_PLUGINS")
+        for entry in entry_points(group=group):
+            if allowed is not None and entry.name not in allowed.split(","):
+                continue
+            try:
+                specs = tuple(entry.load())
+            except Exception:
+                logger.warning(
+                    "Cannot read the plugin manifest %s", entry.value, exc_info=True
+                )
+                continue
+            for spec in specs:
+                try:
+                    self.register(spec)
+                except Exception:
+                    logger.warning(
+                        "Skipping a plugin declared in %s", entry.value, exc_info=True
+                    )
+
+    def register(self, spec: PluginSpec | KindSpec, *, replace: bool = False) -> None:
         """Register a manifest, replacing an existing ID only when requested."""
+        if isinstance(spec, KindSpec):
+            if spec.kind in KINDS or spec.kind in self._kinds:
+                raise PluginError(f"Plugin kind already defined: {spec.kind}")
+            self._kinds[spec.kind] = spec
+            return
         if not isinstance(spec.id, str) or not spec.id:
             raise PluginError("Plugin ID must be a non-empty string")
         if spec.id in self._specs and not replace:
             raise PluginError(f"Plugin already registered: {spec.id}")
         self._specs[spec.id] = spec
 
+    def kinds(self) -> tuple[str, ...]:
+        """Name the built-in kinds followed by the kinds packages have defined."""
+        self._discover()
+        return (*KINDS, *self._kinds)
+
     def list(self, *, kind: str | None = None) -> tuple[PluginSpec, ...]:
         """List manifests without importing plugin implementations."""
+        self._discover()
         return tuple(
             spec for spec in self._specs.values() if kind is None or spec.kind == kind
         )
 
     def _get(self, plugin_id: str, kind: str | None = None) -> PluginSpec:
+        self._discover()
         if plugin_id not in self._specs:
             raise PluginError(f"Unknown plugin: {plugin_id}")
         spec = self._specs[plugin_id]
-        if type(spec.api_version) is not int or spec.api_version != 1:
+        if spec.api_version != 1:
             raise PluginError(f"Unsupported plugin api_version; expected 1: {spec.id}")
-        if (
-            spec.kind not in ("metric", "model", "embedding", *_PLUGIN_CONTRACTS)
-            or kind is not None
-            and spec.kind != kind
-        ):
+        if spec.kind not in self.kinds() or kind is not None and spec.kind != kind:
             raise PluginError(
                 f"Unexpected plugin kind {spec.kind!r} for {plugin_id} (requested {kind})"
             )
+        if spec.kind == "importer" and spec.produces not in PRODUCTS:
+            raise PluginError(
+                f"An importer must declare produces as one of {PRODUCTS}: {spec.id}"
+            )
         return spec
+
+    def spec(self, plugin_id: str) -> PluginSpec:
+        """Return a plugin's manifest row without importing its implementation."""
+        return self._get(plugin_id)
 
     def describe(self, plugin_id: str, **settings: Any) -> MetricSpec:
         """Resolve a metric's scoring contract from settings, without injected clients."""
@@ -133,11 +208,15 @@ class PluginRegistry:
         factory = _load(spec.factory, spec.id)
         build_spec = getattr(factory, "spec_from_config", None)
         if build_spec is not None or settings:
-            settings = _settings(spec, _config_schema(spec), settings)
+            settings = _validated(spec, _config_schema(factory, spec), settings)
         if build_spec is None:
             metric_spec = getattr(factory, "spec", None)
         else:
             try:
+                accepted = inspect.signature(build_spec).parameters.values()
+                if not any(p.kind is p.VAR_KEYWORD for p in accepted):
+                    names = {p.name for p in accepted}
+                    settings = {k: v for k, v in settings.items() if k in names}
                 metric_spec = build_spec(**settings)
             except ValueError as exc:
                 raise PluginError(f"Invalid plugin configuration: {spec.id}") from exc
@@ -156,21 +235,6 @@ class PluginRegistry:
         return self._construct(self._get(plugin_id, kind), config)
 
     def _construct(self, spec: PluginSpec, config: dict[str, Any]) -> Any:
-        schema = _config_schema(spec)
-        declared = {**spec.dependencies, **spec.optional_dependencies}
-        if declared.keys() & schema.model_fields.keys():
-            raise PluginError(f"Configuration and dependency names overlap: {spec.id}")
-        dependencies = {}
-        for name, kind in declared.items():
-            dependency = config.pop(name, None)
-            if dependency is None:
-                if name in spec.dependencies:
-                    raise PluginError(f"Missing dependency {name!r} for {spec.id}")
-                continue
-            if kind != "client" and not _matches_model(dependency, kind):
-                raise PluginError(f"Invalid {kind} dependency {name!r} for {spec.id}")
-            dependencies[name] = dependency
-        options = _settings(spec, schema, config, for_factory=True)
         for name in spec.required_distributions:
             try:
                 distribution(name)
@@ -184,40 +248,32 @@ class PluginRegistry:
                     f"Missing optional distribution {name} for plugin {spec.id}{hint}"
                 ) from exc
         factory = _load(spec.factory, spec.id)
+        schema = _config_schema(factory, spec)
+        declared = {**spec.dependencies, **spec.optional_dependencies}
+        if declared.keys() & schema.model_fields.keys():
+            raise PluginError(f"Configuration and dependency names overlap: {spec.id}")
+        dependencies = {}
+        for name, kind in declared.items():
+            dependency = config.pop(name, None)
+            if dependency is None:
+                if name in spec.dependencies:
+                    raise PluginError(f"Missing dependency {name!r} for {spec.id}")
+                continue
+            if kind != "client" and not _is_model(dependency, _MODEL_METHODS[kind]):
+                raise PluginError(f"Invalid {kind} dependency {name!r} for {spec.id}")
+            dependencies[name] = dependency if kind == "client" else gated(dependency)
+        _reject_unknown(spec, schema, config)
         try:
-            plugin = factory(**dependencies, **options)
+            plugin = factory(**dependencies, **config)
         except ValidationError as exc:
             raise _invalid_config(spec, exc) from exc
         except Exception as exc:
             raise PluginError(f"Plugin construction failed: {spec.id}") from exc
-        if spec.kind == "metric":
-            if (
-                not isinstance(getattr(plugin, "spec", None), MetricSpec)
-                or plugin.spec.id != spec.id
-            ):
-                raise PluginError(f"PluginSpec.id must match MetricSpec.id: {spec.id}")
-            if not callable(getattr(plugin, "ascore_inputs", None)) or not callable(
-                getattr(plugin, "config_snapshot", None)
-            ):
-                raise PluginError(
-                    f"Factory result does not satisfy the Metric contract: {spec.id}"
-                )
-        elif spec.kind in _PLUGIN_CONTRACTS:
-            if not isinstance(plugin, _PLUGIN_CONTRACTS[spec.kind]):
-                raise PluginError(
-                    f"Factory result does not match the {spec.kind} contract: {spec.id}"
-                )
-            if spec.kind == "synthesis" and plugin.plugin_id != spec.id:
-                raise PluginError(
-                    f"PluginSpec.id must match the synthesizer ID: {spec.id}"
-                )
-        elif (
-            not _matches_model(
-                plugin, "language_model" if spec.kind == "model" else "embedding_model"
-            )
-            or plugin.plugin_id != spec.id
-        ):
+        conforms = KINDS.get(spec.kind) or _implements(
+            _load(self._kinds[spec.kind].contract, spec.kind, "kind contract")
+        )
+        if not conforms(plugin, spec.id):
             raise PluginError(
-                f"Factory result does not match the model contract: {spec.id}"
+                f"Factory result must match the {spec.kind} contract and plugin ID: {spec.id}"
             )
         return plugin

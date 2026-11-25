@@ -10,7 +10,6 @@ import pytest
 from tallyjudge import Dataset, Evaluator, create_language_model, create_metric
 
 PASSAGES = ["first passage", "second passage"]
-# Exact UTF-8 on the pinned Pydantic, plus a digest with only schema key order normalized.
 PROMPTS = {
     "entity_reference": (
         "e2de7ef6da39a5e2e93a47824237e008a04570e954dc4a73716de8a0e55ea2eb",
@@ -379,7 +378,6 @@ async def test_dual_judges_replay_archived_ratings_and_attempts(
     client, metric, row, grades, order, case
 ):
     high, other = grades
-    # Feed the whole archived script, including valid grades after a failed round.
     ratings = {
         "two_ratings": [high, other],
         "retry_then_valid": [9, high, other],
@@ -537,8 +535,6 @@ async def test_granularity_examples_are_bound_to_each_metric_instance(client):
         (0, [], ("undefined", None, "no_valid_ratings"), 0),
         (1, [{"rating": 9}, {"rating": 2}], ("success", 0.5, None), 2),
         (2, [{"rating": 9}, {"rating": 4}, {"rating": 2}], ("success", 0.75, None), 3),
-        # ec00339 retried a missing rating and scored these scripts 0.5 and 0.75.
-        # Revision 3 leaves schema repair to the model's structured retry budget.
         (1, [{}, {"rating": 2}], ("error", None, "schema_validation"), 1),
         (
             2,

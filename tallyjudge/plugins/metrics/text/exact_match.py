@@ -4,11 +4,14 @@ Original algorithm distributed under Apache-2.0; see repository LICENSE.
 Revision 1 preserves case and whitespace and strictly requires strings.
 """
 
-from tallyjudge.core.results import MetricResult
-from tallyjudge.interfaces.metrics import MetricBase, MetricSpec
+from tallyjudge.sdk.metrics import MetricBase, MetricSpec
+from tallyjudge.sdk.plugin import Plugin
+from tallyjudge.sdk.results import MetricResult
 
 
 class ExactMatchMetric(MetricBase):
+    plugin = Plugin("metric")
+
     spec = MetricSpec(
         "metric.text.exact_match",
         "1",

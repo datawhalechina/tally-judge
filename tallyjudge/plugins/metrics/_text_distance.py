@@ -9,8 +9,6 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict
 
-# A native Levenshtein comparison can hold the GIL for its entire duration.
-# Keep ordinary passages in-process and give expensive rows a cancellable worker.
 _PROCESS_WORK = 256_000_000
 
 
@@ -31,8 +29,6 @@ class DistanceConfig(BaseModel):
 
 
 class TextDistance:
-    """Load RapidFuzz only when a distance-based metric is constructed."""
-
     def __init__(self, measure: str):
         self.measure = DistanceMeasure(measure)
         distance = import_module("rapidfuzz.distance")
@@ -47,7 +43,6 @@ class TextDistance:
         return 1.0 - self._normalized_distance(left, right)
 
     async def asimilarity(self, left: str, right: str) -> float:
-        """Compare a pair without blocking other scores on long strings."""
         if (1 + len(left)) * (1 + len(right)) > _PROCESS_WORK:
             return await self._in_process([left], [right], None)
         return self.similarity(left, right)
@@ -63,7 +58,6 @@ class TextDistance:
     async def matches(
         self, passages: list[str], candidates: list[str], threshold: float
     ) -> list[bool]:
-        """Return one hit per passage, preserving ranks and repeated passages."""
         work = (sum(map(len, passages)) + len(passages)) * (
             sum(map(len, candidates)) + len(candidates)
         )

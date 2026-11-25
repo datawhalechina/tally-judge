@@ -10,8 +10,6 @@ import pydantic
 import pytest
 
 from tallyjudge import Dataset, Evaluator, create_metric
-from tallyjudge.core.usage import UsageSummary
-from tallyjudge.interfaces.models import GenerationResult
 from tallyjudge.plugins.synthesis.graph import (
     EvidenceGraph,
     build_entity_graph,
@@ -22,8 +20,9 @@ from tallyjudge.plugins.synthesis.scenarios import (
     SingleHopScenario,
     generate_sample,
 )
+from tallyjudge.sdk.models import GenerationResult
+from tallyjudge.sdk.usage import UsageSummary
 
-# Golden hashes come from the installed archive. The second digest normalizes JSON Schema key order.
 ARCHIVED = {
     "single": [
         (
@@ -201,7 +200,6 @@ async def test_scenario_replays_archived_prompt_and_sample(
 async def test_graph_ner_replays_windows_and_preserves_labels(
     case, text, limit, responses, monkeypatch
 ):
-    # The archive fixture uses one ASCII byte per token to test window edges offline.
     class ByteEncoding:
         def encode(self, value, *, disallowed_special):
             assert disallowed_special == ()

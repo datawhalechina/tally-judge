@@ -1,5 +1,3 @@
-"""Disk-backed score cache. SQLite commits one complete value per key."""
-
 import json
 import sqlite3
 from contextlib import closing
@@ -8,8 +6,9 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from tallyjudge.core.dataset import canonical_json
-from tallyjudge.core.results import MetricResult
+from tallyjudge.sdk.dataset import canonical_json
+from tallyjudge.sdk.plugin import Plugin
+from tallyjudge.sdk.results import MetricResult
 
 
 class SqliteCacheConfig(BaseModel):
@@ -18,14 +17,17 @@ class SqliteCacheConfig(BaseModel):
 
 
 class SqliteScoreCache:
-    """Store successful binding scores in one SQLite file, keyed by score identity.
+    plugin = Plugin("cache")
+    plugin_id = "cache.local.sqlite"
 
-    Methods block on file locks; the scheduler calls them from worker threads.
-    """
+    Config = SqliteCacheConfig
 
     def __init__(self, *, path: str | Path, namespace: str) -> None:
-        self.path = Path(path)
-        self.namespace = namespace
+        config = SqliteCacheConfig.model_validate(
+            {"path": path, "namespace": namespace}, strict=True
+        )
+        self.path = Path(config.path)
+        self.namespace = config.namespace
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with closing(sqlite3.connect(self.path)) as connection:
             connection.execute(

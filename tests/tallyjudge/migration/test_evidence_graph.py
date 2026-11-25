@@ -78,8 +78,6 @@ def test_archived_edge_ids_and_source_survive_conversion():
 def test_restoring_archived_prompts_changes_pre_migration_ids(
     suffix, revision, original_id
 ):
-    """Changing the model task gives new samples a distinct reproducible identity."""
-
     class Judge:
         plugin_id = "model.fixture.phase7"
         usage_tracking = "untracked"

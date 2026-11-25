@@ -8,12 +8,12 @@ from typing import Any, ClassVar
 
 from pydantic import Field
 
-from tallyjudge.core.errors import UndefinedScore
-from tallyjudge.core.prompts import StructuredPrompt
-from tallyjudge.core.results import MetricResult
-from tallyjudge.interfaces.models import LanguageModel
-from tallyjudge.plugins.metrics.rag._judge import RagJudge
-from tallyjudge.registry.specs import EmptyConfig
+from tallyjudge.plugins._prompting import StructuredPrompt
+from tallyjudge.plugins.metrics._judge import ModelJudge
+from tallyjudge.sdk.config import EmptyConfig
+from tallyjudge.sdk.errors import UndefinedScore
+from tallyjudge.sdk.models import LanguageModel
+from tallyjudge.sdk.results import MetricResult
 
 
 class DualJudgeConfig(EmptyConfig):
@@ -22,9 +22,7 @@ class DualJudgeConfig(EmptyConfig):
     max_retries: int = Field(default=5, ge=0)
 
 
-class DualJudge(RagJudge):
-    """Normalize the ratings available within each judge's attempt budget."""
-
+class DualJudge(ModelJudge):
     grades: ClassVar[tuple[int, ...]]
 
     def __init__(self, llm: LanguageModel, max_retries: int = 5):
@@ -32,7 +30,6 @@ class DualJudge(RagJudge):
         self.max_retries = DualJudgeConfig(max_retries=max_retries).max_retries
 
     def config_snapshot(self) -> dict[str, Any]:
-        """Include the attempt budget because a later valid rating can affect the score."""
         return {**super().config_snapshot(), "max_retries": self.max_retries}
 
     async def _rate_pair(

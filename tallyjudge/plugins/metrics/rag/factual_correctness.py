@@ -6,17 +6,15 @@ verdicts are undefined. The denominator counts the returned binary judgments.
 
 from typing import Any, Literal
 
-from tallyjudge.core.errors import UndefinedScore
-from tallyjudge.core.results import MetricResult
-from tallyjudge.interfaces.metrics import MetricSpec
-from tallyjudge.interfaces.models import LanguageModel
+from tallyjudge.plugins.metrics._judge import ModelJudge, binary_verdict
 from tallyjudge.plugins.metrics.rag._factual_prompts import prompts
-from tallyjudge.plugins.metrics.rag._judge import (
-    RagJudge,
-    binary_verdict,
-    required_text_inputs,
-)
-from tallyjudge.registry.specs import EmptyConfig
+from tallyjudge.plugins.metrics.rag._inputs import required_text_inputs
+from tallyjudge.sdk.config import EmptyConfig
+from tallyjudge.sdk.errors import UndefinedScore
+from tallyjudge.sdk.metrics import MetricSpec
+from tallyjudge.sdk.models import LanguageModel
+from tallyjudge.sdk.plugin import Plugin
+from tallyjudge.sdk.results import MetricResult
 
 type Mode = Literal["precision", "recall", "f1"]
 type Granularity = Literal["low", "high"]
@@ -39,7 +37,6 @@ def _f_beta(precision: float, recall: float, beta: float) -> float:
     try:
         weight = beta**2
     except OverflowError:
-        # At this magnitude F-beta rounds to recall for positive precision.
         return recall
     denominator = weight * precision + recall
     if denominator == 0:
@@ -47,8 +44,10 @@ def _f_beta(precision: float, recall: float, beta: float) -> float:
     return (1 + weight) * (precision * recall) / denominator
 
 
-class FactualCorrectnessMetric(RagJudge):
-    """Verify factual claims in the answer against the reference and vice versa."""
+class FactualCorrectnessMetric(ModelJudge):
+    plugin = Plugin("metric", dependencies={"llm": "language_model"})
+
+    Config = FactualCorrectnessConfig
 
     spec = MetricSpec(
         "metric.rag.factual_correctness",
@@ -76,12 +75,7 @@ class FactualCorrectnessMetric(RagJudge):
         )
 
     def config_snapshot(self) -> dict[str, Any]:
-        """Include the scoring mode, beta and both claim decomposition settings."""
         return {**super().config_snapshot(), **self.settings.model_dump()}
-
-    async def ascore(self, response: str, reference: str) -> MetricResult:
-        """Score precision, recall or F-beta, rounded to two decimal places."""
-        return await self.ascore_inputs({"response": response, "reference": reference})
 
     async def _support_rate(self, text: str, evidence: str, empty_claims: str) -> float:
         template = self._decomposition
@@ -102,7 +96,7 @@ class FactualCorrectnessMetric(RagJudge):
         supported = sum(binary_verdict(item.verdict) for item in reply.statements)
         return supported / (len(reply.statements) + 1e-8)
 
-    async def _score(self, response: str, reference: str) -> MetricResult:
+    async def ascore(self, response: str, reference: str) -> MetricResult:
         mode = self.settings.mode
         if mode == "recall":
             score = await self._support_rate(
@@ -117,5 +111,4 @@ class FactualCorrectnessMetric(RagJudge):
                     reference, response, "no_reference_statements"
                 )
                 score = _f_beta(score, recall, self.settings.beta)
-        # The archived scalar uses NumPy's scale, round-to-even, then unscale.
         return MetricResult(round(score * 100) / 100)

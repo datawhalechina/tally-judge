@@ -9,9 +9,14 @@ import json
 import random
 from typing import cast
 
-from tallyjudge.core.prompts import Message, PromptInput
-from tallyjudge.plugins.optimization._experiment import OptimizerBase, Training
-from tallyjudge.registry.specs import EmptyConfig
+from tallyjudge.plugins.optimization._experiment import (
+    OptimizationConfig,
+    OptimizerBase,
+    Training,
+)
+from tallyjudge.sdk.config import EmptyConfig
+from tallyjudge.sdk.plugin import Plugin
+from tallyjudge.sdk.prompts import Message, PromptInput
 
 
 class _Instruction(EmptyConfig):
@@ -23,7 +28,9 @@ class _Feedback(EmptyConfig):
 
 
 class GeneticOptimizer(OptimizerBase):
-    """Propose, mutate and cross over instructions using labeled training examples."""
+    plugin = Plugin("optimization", dependencies={"llm": "language_model"})
+
+    Config = OptimizationConfig
 
     plugin_id = "optimization.prompt.genetic"
 
@@ -56,7 +63,6 @@ class GeneticOptimizer(OptimizerBase):
             return result.data.instruction
 
         population = [training.original]
-        # Share the candidate allowance across initialization, mutation and crossover.
         for _ in range(max(1, (self.settings.max_candidates - 1) // 3)):
             sample = rng.sample(examples, min(3, len(examples)))
             candidate = await propose(
@@ -74,7 +80,6 @@ class GeneticOptimizer(OptimizerBase):
             for example, row in zip(examples, training.runs[parent].rows, strict=True):
                 score = row.metrics[training.metric.key]
                 if score.status == "success" and score.value != optimum:
-                    # A scored training row has a completed answer task.
                     assert row.task is not None and row.task.output is not None
                     value = cast(float, score.value)
                     feedback_examples.append(

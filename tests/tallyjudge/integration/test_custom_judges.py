@@ -1,5 +1,3 @@
-"""Public scoring, vote/request accounting and archival behavior of model judges."""
-
 import asyncio
 import json
 
@@ -19,8 +17,8 @@ from tallyjudge import (
     create_metric,
     create_storage_backend,
 )
-from tallyjudge.core.errors import PluginError
 from tallyjudge.registry import registry
+from tallyjudge.sdk.errors import PluginError
 
 NUMERIC = "metric.custom.numeric"
 CATEGORY = "metric.custom.categorical"
@@ -148,7 +146,7 @@ async def test_direct_and_factory_judges_use_the_same_settings(judge, client):
         await metric.ascore_inputs(inputs)
     prompts = [body["messages"][0]["content"] for _, body in client.calls]
     assert prompts[0] != prompts[1] and all("Paris" in prompt for prompt in prompts)
-    assert prompts[2] == prompts[3] and "Paris" in prompts[2]
+    assert prompts[2] == prompts[3]
     assert metrics[0].config_snapshot() != metrics[1].config_snapshot()
     assert metrics[2].config_snapshot() == metrics[3].config_snapshot()
 

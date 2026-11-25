@@ -1,16 +1,11 @@
-"""Text-distance settings and row-level execution shared by retrieval metrics."""
-
-from abc import abstractmethod
-
 from pydantic import Field
 
-from tallyjudge.core.results import MetricResult
-from tallyjudge.interfaces.metrics import MetricBase
 from tallyjudge.plugins.metrics._text_distance import (
     DistanceConfig,
     DistanceMeasure,
     TextDistance,
 )
+from tallyjudge.sdk.metrics import MetricBase
 
 CONTEXT_INPUTS = {"retrieved_contexts": list[str], "reference_contexts": list[str]}
 
@@ -20,8 +15,6 @@ class TextContextConfig(DistanceConfig):
 
 
 class TextContextMetric(MetricBase):
-    """Share retrieval inputs and distance settings across precision and recall."""
-
     def __init__(
         self,
         distance_measure: str = DistanceMeasure.LEVENSHTEIN,
@@ -38,19 +31,3 @@ class TextContextMetric(MetricBase):
             "distance_measure": self.distance.measure.value,
             "threshold": self.threshold,
         }
-
-    async def ascore(
-        self, retrieved_contexts: list[str], reference_contexts: list[str]
-    ) -> MetricResult:
-        """Score the ranked retrieval and reference passage lists."""
-        return await self.ascore_inputs(
-            {
-                "retrieved_contexts": retrieved_contexts,
-                "reference_contexts": reference_contexts,
-            }
-        )
-
-    @abstractmethod
-    async def _ascore_validated(
-        self, retrieved_contexts: list[str], reference_contexts: list[str]
-    ) -> MetricResult: ...

@@ -1,15 +1,19 @@
 """Ragas _context_precision.py (ec00339, Apache-2.0), with real candidates required for a hit."""
 
-from tallyjudge.core.results import MetricResult
-from tallyjudge.interfaces.metrics import MetricSpec
 from tallyjudge.plugins.metrics.retrieval._text_context import (
     CONTEXT_INPUTS,
+    TextContextConfig,
     TextContextMetric,
 )
+from tallyjudge.sdk.metrics import MetricSpec
+from tallyjudge.sdk.plugin import Plugin
+from tallyjudge.sdk.results import MetricResult
 
 
 class TextContextPrecisionMetric(TextContextMetric):
-    """Average the prefix precision at each matching retrieval rank, retaining duplicates."""
+    plugin = Plugin("metric", requires=("rapidfuzz",), extra="text-distance")
+
+    Config = TextContextConfig
 
     spec = MetricSpec(
         "metric.retrieval.text_context_precision",
@@ -18,7 +22,7 @@ class TextContextPrecisionMetric(TextContextMetric):
         value_range=(0.0, 1.0),
     )
 
-    async def _ascore_validated(
+    async def ascore(
         self, retrieved_contexts: list[str], reference_contexts: list[str]
     ) -> MetricResult:
         matched = await self.distance.matches(

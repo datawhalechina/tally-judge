@@ -1,10 +1,8 @@
-"""Public decorators for constructible function metrics."""
-
 import inspect
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any, get_type_hints
 
-from tallyjudge.interfaces.metrics import MetricSpec
+from tallyjudge.sdk.metrics import MetricSpec
 
 if TYPE_CHECKING:
     from tallyjudge.plugins.metrics.custom import FunctionMetric

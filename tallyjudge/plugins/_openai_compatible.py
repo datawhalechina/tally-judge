@@ -1,5 +1,3 @@
-"""Shared client ownership and token mapping for the two OpenAI-compatible adapters."""
-
 import asyncio
 import logging
 import sys
@@ -8,8 +6,9 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from tallyjudge.core.errors import ClientLoopError, ModelError
-from tallyjudge.core.usage import RequestKind, RequestRecord, Usage, record_request
+from tallyjudge.sdk.errors import ClientLoopError, ModelError
+from tallyjudge.sdk.gate import record_request
+from tallyjudge.sdk.usage import RequestKind, RequestRecord, Usage
 
 logger = logging.getLogger(__name__)
 
@@ -24,10 +23,7 @@ class ClientConfig(BaseModel):
 
 
 class ClientTransport:
-    """Use a retry-disabled view of the caller-owned client on the first request's loop."""
-
     def __init__(self, client: Any, config: ClientConfig, kind: RequestKind):
-        # An injected SDK client has already loaded openai. Other compatible clients need no SDK.
         sync_client = getattr(sys.modules.get("openai"), "OpenAI", ())
         if isinstance(client, sync_client):
             raise TypeError("Pass AsyncOpenAI for asynchronous model requests")

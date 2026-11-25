@@ -1,5 +1,3 @@
-"""Exercise the installed public API without pytest or provider packages."""
-
 import asyncio
 import json
 import math
@@ -21,8 +19,8 @@ from tallyjudge import (
     create_metric,
     create_synthesizer,
 )
-from tallyjudge.core.errors import PluginError
 from tallyjudge.registry import registry
+from tallyjudge.sdk.errors import PluginError
 
 FAITH = "metric.rag.faithfulness"
 RELEVANCE = "metric.rag.answer_relevance"
@@ -98,9 +96,12 @@ async def check_rag():
     assert data["summary"][FAITH]["coverage"] == 1 / 3
     assert data["summary"][RELEVANCE]["coverage"] == 2 / 3
     assert data["summary"][RELEVANCE]["usage"]["embedding"]["requests"] == 2
+    assert {key: m["revision"] for key, m in data["metrics"].items()} == {
+        FAITH: "2",
+        RELEVANCE: "1",
+    }
     assert all(
-        m["revision"] == m["config_snapshot"]["prompt_revision"] == "1"
-        for m in data["metrics"].values()
+        m["config_snapshot"]["prompt_revision"] == "1" for m in data["metrics"].values()
     )
     metric = create_metric(
         "metric.custom.categorical",
@@ -118,9 +119,6 @@ async def check_single_turn_rag():
     verdicts = [1, 0, 1]
     client.outputs = iter(
         [
-            {"statements": ["s"]},
-            {"statements": [dict(claim, verdict=1)]},
-            {"question": "q", "noncommittal": 0},
             *({"reason": "fixture", "verdict": value} for value in verdicts * 2),
             {"classifications": [dict(claim, attributed=value) for value in verdicts]},
             {"statements": ["s"]},
@@ -138,8 +136,6 @@ async def check_single_turn_rag():
         "embedding.openai_compatible.embeddings", model="vec", client=client
     )
     metrics = [
-        create_metric(FAITH, llm=llm),
-        create_metric(RELEVANCE, llm=llm, embeddings=embeddings, strictness=1),
         create_metric("metric.retrieval.id_context_precision"),
         create_metric("metric.retrieval.id_context_recall"),
         create_metric("metric.rag.context_precision_with_reference", llm=llm),
@@ -161,9 +157,9 @@ async def check_single_turn_rag():
         Dataset.from_records([row])
     )
     scores = result.row_for("ranked").metrics
-    assert len(scores) == 9 and result.run_status == "completed"
+    assert len(scores) == 7 and result.run_status == "completed"
     for metric, expected in zip(
-        metrics, [1, 1, 1 / 2, 1 / 3, 5 / 6, 5 / 6, 2 / 3, 1, 1], strict=True
+        metrics, [1 / 2, 1 / 3, 5 / 6, 5 / 6, 2 / 3, 1, 1], strict=True
     ):
         score = scores[metric.spec.id]
         assert score.status == "success" and math.isclose(
@@ -229,7 +225,6 @@ async def check_synthesis():
         llm=llm,
     )
     assert graph.relations == () and graph.generation_usage.requests == 0
-    # An explicit archived edge is sufficient for mixed sampling in a base install.
     graph = EvidenceGraph(graph.chunks, [("a", "b")])
     restored = EvidenceGraph.from_dict(json.loads(json.dumps(graph.to_dict())))
     client.outputs = iter(
@@ -291,7 +286,6 @@ def check_distances(installed):
         "metric.retrieval.text_context_precision",
         "metric.retrieval.text_context_recall",
     )
-    # Exercise the process worker from the installed wheel outside the source checkout.
     passage = "文" * 17_000
     row = {
         "response": passage,
@@ -324,6 +318,9 @@ def check_installation():
         "embedding",
         "storage",
         "event",
+        "importer",
+        "runner",
+        "analyzer",
         "synthesis",
         "optimization",
         "cache",
@@ -342,7 +339,7 @@ def check_installation():
     result = Evaluator(metrics).run(dataset)
     assert len(result.rows) == 2
     assert all(item["mean"] == 0.5 for item in result.summary.values())
-    assert json.loads(result.to_json())["schema_version"] == 3
+    assert json.loads(result.to_json())["schema_version"] == 4
     assert result.run_status == "completed" and result.stop_reason is None
     asyncio.run(check_rag())
     asyncio.run(check_single_turn_rag())

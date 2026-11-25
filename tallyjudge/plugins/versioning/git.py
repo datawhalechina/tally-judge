@@ -1,12 +1,9 @@
-"""Read experiment revisions without changing the selected Git worktree."""
-
 import os
 import subprocess
 from pathlib import Path
 
 
 def git_revision(repository: str | Path, revision: str = "HEAD") -> str:
-    """Resolve a named revision to its full commit hash for experiment metadata."""
     return subprocess.run(
         [
             "git",

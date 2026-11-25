@@ -10,7 +10,6 @@ from typing import Any
 
 from pydantic import Field
 
-from tallyjudge.interfaces.models import LanguageModel
 from tallyjudge.plugins.synthesis._evidence import (
     EvidenceSynthesizer,
     SamplingConfig,
@@ -22,6 +21,8 @@ from tallyjudge.plugins.synthesis.single_hop import (
     SingleHopSynthesizer,
     select_passages,
 )
+from tallyjudge.sdk.models import LanguageModel
+from tallyjudge.sdk.plugin import Plugin
 
 
 class MixedConfig(SamplingConfig):
@@ -31,7 +32,9 @@ class MixedConfig(SamplingConfig):
 
 
 class MixedHopSynthesizer(EvidenceSynthesizer):
-    """Generate a bounded mix of single-passage and evidence-pair questions."""
+    plugin = Plugin("synthesis", dependencies={"llm": "language_model"})
+
+    Config = MixedConfig
 
     plugin_id = "synthesis.testset.mixed"
 
@@ -54,7 +57,6 @@ class MixedHopSynthesizer(EvidenceSynthesizer):
         self.multi_hop_fraction = config.multi_hop_fraction
 
     def config_snapshot(self) -> dict[str, Any]:
-        """Identify the sampling policy and the versions of both question prompts."""
         return {
             **super().config_snapshot(),
             "multi_hop_fraction": self.multi_hop_fraction,
@@ -67,7 +69,6 @@ class MixedHopSynthesizer(EvidenceSynthesizer):
     def select(
         self, chunks: Iterable[Mapping[str, Any]], size: int
     ) -> list[tuple[EvidenceChunk, ...]]:
-        """Apportion capacity before generation and never sample a disabled question type."""
         if isinstance(chunks, EvidenceGraph):
             graph = chunks
         elif self.multi_hop_fraction:
@@ -79,7 +80,6 @@ class MixedHopSynthesizer(EvidenceSynthesizer):
         if self.multi_hop_fraction == 1:
             return select_pairs(graph, size, self.seed)
 
-        # Round a decimal half toward two-passage questions, including e.g. 0.58 × 25.
         target_pairs = int(
             Fraction(str(self.multi_hop_fraction)) * size + Fraction(1, 2)
         )

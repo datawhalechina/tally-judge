@@ -1,5 +1,3 @@
-"""Portable local filenames for per-run artifacts."""
-
 import re
 from pathlib import Path
 
@@ -8,6 +6,10 @@ from pydantic import BaseModel
 
 class DirectoryConfig(BaseModel):
     root: Path | str
+
+
+def directory(root: Path | str) -> Path:
+    return Path(DirectoryConfig.model_validate({"root": root}, strict=True).root)
 
 
 def run_file(root: Path, prefix: str, run_id: str) -> Path:

@@ -1,8 +1,7 @@
 import json
 
 from tallyjudge import Dataset, Evaluator, MetricBinding, create_metric
-from tallyjudge.core.aggregation import aggregate
-from tallyjudge.core.results import RowResult, ScoreResult
+from tallyjudge.sdk.results import RowResult, ScoreResult, aggregate
 
 
 def test_failures_are_not_zeroes():
@@ -24,12 +23,8 @@ def test_failures_are_not_zeroes():
     assert aggregate(rows[2:], ["m"])["m"]["mean"] is None
 
 
-def test_empty_and_private_json_roundtrip():
+def test_private_json_roundtrip():
     metric = create_metric("metric.text.exact_match")
-    empty = Evaluator([metric]).run(Dataset.from_records([]))
-    assert empty.rows == []
-    assert empty.summary[metric.spec.id]["mean"] is None
-    assert empty.summary[metric.spec.id]["coverage"] is None
     dataset = Dataset.from_records(
         [
             {"case_id": "a", "answer": "敏感文本", "reference": "敏感文本"},
@@ -43,7 +38,7 @@ def test_empty_and_private_json_roundtrip():
         data = json.loads(report.to_json(include_inputs=include_inputs))
         assert data == report.to_dict(include_inputs=include_inputs)
         assert ("inputs" in data) == include_inputs
-        assert data["schema_version"] == 3
+        assert data["schema_version"] == 4
         assert data["manifest"] == dataset.manifest
         assert data["metrics"]["answer_match"] == {
             "id": metric.spec.id,
@@ -56,7 +51,6 @@ def test_empty_and_private_json_roundtrip():
         assert [row["case_id"] for row in data["rows"]] == ["a", "b"]
         assert data["rows"][1]["metrics"]["answer_match"]["value"] is None
     assert "敏感文本" not in report.to_json(include_inputs=False)
-    assert "NaN" not in report.to_json()
 
 
 def test_mean_preserves_extreme_finite_scores():

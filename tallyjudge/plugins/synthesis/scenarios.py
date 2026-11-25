@@ -10,8 +10,6 @@ from typing import Any, Self
 
 from pydantic import BaseModel, Field
 
-from tallyjudge.core.usage import mark_usage_source
-from tallyjudge.interfaces.models import LanguageModel
 from tallyjudge.plugins.synthesis._prompts import (
     GeneratedQueryAnswer,
     MultiHopPrompt,
@@ -20,7 +18,8 @@ from tallyjudge.plugins.synthesis._prompts import (
     QueryConditions,
     SingleHopPrompt,
 )
-from tallyjudge.registry.specs import EmptyConfig
+from tallyjudge.sdk.config import EmptyConfig
+from tallyjudge.sdk.models import LanguageModel
 
 
 class EvidenceChunk(EmptyConfig):
@@ -65,7 +64,6 @@ class _Scenario(BaseModel):
     def from_ragas(
         cls, data: Mapping[str, Any], chunks: Iterable[Mapping[str, Any]]
     ) -> Self:
-        """Resolve a serialized Ragas scenario's ordered node IDs against its source graph."""
         by_id = {chunk["chunk_id"]: chunk for chunk in chunks}
         return cls.model_validate(
             {**data, "nodes": [by_id[str(node["id"])] for node in data["nodes"]]}
@@ -90,7 +88,6 @@ async def generate_sample(
     llm: LanguageModel,
     llm_context: str | None = None,
 ) -> dict[str, Any]:
-    """Generate one archived-format sample from a selected scenario and its source IDs."""
     if isinstance(scenario, SingleHopScenario):
         nodes = [scenario.nodes[0]]
         contexts = [nodes[0].text]
@@ -117,7 +114,6 @@ async def generate_sample(
                 llm_context=llm_context,
             )
         )
-    mark_usage_source("generation", llm.plugin_id, llm.usage_tracking)
     answer = (await llm.agenerate(prompt, GeneratedQueryAnswer)).data
     return {
         "user_input": answer.query,
