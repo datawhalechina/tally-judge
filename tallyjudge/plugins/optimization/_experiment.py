@@ -6,6 +6,7 @@ from pydantic import Field
 
 from tallyjudge.engine.config import ExecutionConfig
 from tallyjudge.engine.scheduler import run_tasks
+from tallyjudge.plugins._controls import dataset_bound
 from tallyjudge.plugins.optimization.contract import (
     OptimizationResult,
     PromptOptimizerBase,
@@ -83,6 +84,7 @@ class Training:
             ExecutionConfig(max_concurrency=1),
             RunCollector(),
             row_function=answer,
+            controls=dataset_bound,
             experiment_metadata=metadata,
         )
 
@@ -178,5 +180,7 @@ class OptimizerBase(PromptOptimizerBase):
             t.scores,
             budget.requests,
             budget.exhausted,
-            compare_experiments(left, right, output_fields=("response",)),
+            compare_experiments(
+                left, right, output_fields=("response",), controls=dataset_bound
+            ),
         )

@@ -5,13 +5,13 @@ import tempfile
 from pathlib import Path
 from typing import Any, Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import Field, model_validator
 
+from tallyjudge.plugins.runners._json import JsonRunnerConfig
 from tallyjudge.sdk.plugin import Plugin
 
 
-class CommandRunnerConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
+class CommandRunnerConfig(JsonRunnerConfig):
     command: list[str] = Field(min_length=1)
     template: str | None = None
     collect: list[str] = []
@@ -32,6 +32,7 @@ class CommandRunner:
         self.config = CommandRunnerConfig(**settings)
 
     async def _run(self, row: dict[str, Any], directory: str | None) -> dict[str, Any]:
+        payload = self.config.encode_input(row)
         process = await asyncio.create_subprocess_exec(
             *self.config.command,
             stdin=asyncio.subprocess.PIPE,
@@ -39,9 +40,7 @@ class CommandRunner:
             cwd=directory,
         )
         try:
-            output, _ = await process.communicate(
-                json.dumps(row, ensure_ascii=False).encode("utf-8")
-            )
+            output, _ = await process.communicate(payload)
         except asyncio.CancelledError:
             process.kill()
             raise

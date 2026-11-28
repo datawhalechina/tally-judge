@@ -1,9 +1,3 @@
-CONTROL_FIELDS = ("user_input", "reference")
-CONTROL_PREFIXES = ("reference_", "expected_", "forbidden_")
+from tallyjudge.plugins._controls import CONTROL_FIELDS, CONTROL_PREFIXES, dataset_bound
 
-
-def dataset_bound(parameter: str, column: str) -> bool:
-    return any(
-        field in CONTROL_FIELDS or field.startswith(CONTROL_PREFIXES)
-        for field in (parameter, column)
-    )
+__all__ = ["CONTROL_FIELDS", "CONTROL_PREFIXES", "dataset_bound"]

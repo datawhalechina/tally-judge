@@ -5,6 +5,7 @@ import pytest
 from tallyjudge import (
     Dataset,
     Evaluator,
+    MetricBinding,
     create_analyzer,
     create_metric,
     create_storage_backend,
@@ -61,6 +62,43 @@ def test_stability_reports_which_cases_moved_between_runs():
     }
     with pytest.raises(ValueError, match="at least two"):
         create_analyzer("analyzer.stability.repeats").analyze([run(0.0)])
+
+
+@pytest.mark.parametrize("change", ["id", "revision", "config_snapshot", "input_map"])
+def test_stability_rejects_different_metrics_under_one_key(change):
+    @numeric_metric("metric.test.score", revision="1")
+    def original(response: str) -> float:
+        return 0.0
+
+    @numeric_metric("metric.test.score", revision="2" if change == "revision" else "1")
+    def other(response: str) -> float:
+        return 1.0
+
+    if change == "id":
+        second = MetricBinding(create_metric(EXACT), key="quality")
+    elif change == "input_map":
+        second = MetricBinding(
+            original(), key="quality", input_map={"response": "reference"}
+        )
+    else:
+        second = MetricBinding(other(), key="quality")
+    data = Dataset.from_records(ROWS)
+    runs = [
+        Evaluator([binding]).run(data)
+        for binding in (MetricBinding(original(), "quality"), second)
+    ]
+    with pytest.raises(ValueError, match=f"quality.*{change}"):
+        create_analyzer("analyzer.stability.repeats").analyze(runs)
+
+
+def test_stability_rejects_a_changed_sample_with_the_same_id():
+    evaluator = Evaluator([create_metric(EXACT)])
+    runs = [
+        evaluator.run(Dataset.from_records(rows))
+        for rows in (ROWS, [dict(ROWS[0], reference="changed"), *ROWS[1:]])
+    ]
+    with pytest.raises(ValueError, match="sample 'a'"):
+        create_analyzer("analyzer.stability.repeats").analyze(runs)
 
 
 def test_command_line_analyzes_stored_runs(tmp_path, capsys):

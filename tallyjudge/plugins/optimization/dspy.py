@@ -10,6 +10,7 @@ from typing import Any, cast
 
 from pydantic import RootModel
 
+from tallyjudge.plugins._controls import dataset_bound
 from tallyjudge.plugins.optimization._experiment import (
     OptimizationConfig,
     OptimizerBase,
@@ -104,7 +105,10 @@ class DspyOptimizer(OptimizerBase):
                 )
 
         async def objective(row, response):
-            output = await training.metric.ascore_row({**row, "response": response})
+            inputs = training.metric.inputs_for(
+                row, output={"response": response}, controls=dataset_bound
+            )
+            output = await training.metric.ascore_validated(inputs)
             score = validate_output(output, training.metric.metric.spec)
             if score.status != "success":
                 raise ValueError(f"DSPy objective: {score.status}")

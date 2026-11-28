@@ -82,6 +82,6 @@ scores = stability["metrics"][key]
 print(scores["compared"], scores["max_range"], scores["unstable_cases"])  # 2 0.0 []
 ```
 
-用相同的样本内容和评分配置复跑，分析器按共有的样本 ID 和指标名比较分数。只有每次都成功取得数值分数的题才计入 `compared`。本例两题的最大波动为零；有波动时，`unstable_cases` 列出对应的题目 ID。
+分析器核对共有样本的输入指纹和共有指标的评分配置。只有每次都成功取得数值分数的题才计入 `compared`。本例两题的最大波动为零；有波动时，`unstable_cases` 列出对应的题目 ID。
 
 要比较两版**业务提示词**，在应用中分别使用各自的提示词，用 `@experiment(metadata={"prompt_version": "v1"})` 等标记版本。保持题目、参考答案和裁判配置一致，按上例调用 `compare_experiments(old, new)`，先读胜平负，再逐题查看回答与分差。

@@ -3,13 +3,13 @@ import json
 from typing import Any
 from urllib.request import Request, urlopen
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 
+from tallyjudge.plugins.runners._json import JsonRunnerConfig
 from tallyjudge.sdk.plugin import Plugin
 
 
-class HttpRunnerConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
+class HttpRunnerConfig(JsonRunnerConfig):
     url: str = Field(pattern=r"^https?://")
     headers: dict[str, str] = {}
     timeout: float = Field(default=60.0, gt=0)
@@ -27,7 +27,7 @@ class HttpRunner:
     def _post(self, row: dict[str, Any]) -> dict[str, Any]:
         request = Request(
             self.config.url,
-            data=json.dumps(row, ensure_ascii=False).encode("utf-8"),
+            data=self.config.encode_input(row),
             headers={"Content-Type": "application/json", **self.config.headers},
         )
         with urlopen(request, timeout=self.config.timeout) as response:

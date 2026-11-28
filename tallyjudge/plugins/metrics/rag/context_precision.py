@@ -29,11 +29,10 @@ class _ContextPrecision(ContextJudge):
         super().__init__(llm)
         self.concurrency = ContextPrecisionConfig(concurrency=concurrency).concurrency
 
-    async def ascore(
-        self, user_input: str, retrieved_contexts: list[str], **answers: str
+    async def _average_precision(
+        self, user_input: str, answer: str, retrieved_contexts: list[str]
     ) -> MetricResult:
         template = prompt()
-        answer = answers[self.answer_field]
 
         async def judge(context: str) -> int:
             item = template.input_model(
@@ -70,9 +69,21 @@ class ContextPrecisionWithReferenceMetric(_ContextPrecision):
     plugin_id = "metric.rag.context_precision_with_reference"
     answer_field = "reference"
 
+    async def ascore(
+        self, user_input: str, reference: str, retrieved_contexts: list[str]
+    ) -> MetricResult:
+        """Judge retrieved passages in rank order against the reference answer."""
+        return await self._average_precision(user_input, reference, retrieved_contexts)
+
 
 class ContextPrecisionWithoutReferenceMetric(_ContextPrecision):
     plugin = Plugin("metric", dependencies={"llm": "language_model"})
 
     plugin_id = "metric.rag.context_precision_without_reference"
     answer_field = "response"
+
+    async def ascore(
+        self, user_input: str, response: str, retrieved_contexts: list[str]
+    ) -> MetricResult:
+        """Judge retrieved passages in rank order against the generated response."""
+        return await self._average_precision(user_input, response, retrieved_contexts)

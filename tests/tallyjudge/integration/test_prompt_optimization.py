@@ -2,7 +2,13 @@ import json
 
 import pytest
 
-from tallyjudge import Dataset, create_metric, create_optimizer, numeric_metric
+from tallyjudge import (
+    Dataset,
+    MetricBinding,
+    create_metric,
+    create_optimizer,
+    numeric_metric,
+)
 from tallyjudge.sdk.gate import record_request
 from tallyjudge.sdk.models import LanguageModelBase
 from tallyjudge.sdk.usage import Usage
@@ -87,6 +93,35 @@ def test_genetic_four_stages_then_holdout():
         == 1
     )
     assert report.config_snapshot["objective"]["id"] == "metric.text.exact_match"
+
+
+def test_training_and_holdout_use_the_original_mapped_reference():
+    def partition(case_id):
+        return Dataset.from_records(
+            [
+                {
+                    "case_id": case_id,
+                    "user_input": "Q",
+                    "reference": "right",
+                    "response": "right",
+                }
+            ]
+        )
+
+    binding = MetricBinding(
+        create_metric("metric.text.exact_match"), input_map={"reference": "response"}
+    )
+    optimizer = create_optimizer(
+        "optimization.prompt.genetic", llm=ScriptModel(), max_candidates=2
+    )
+    report = optimizer.run(
+        "original",
+        train=partition("train"),
+        holdout=partition("holdout"),
+        metric=binding,
+    )
+    assert report.training_scores == {"original": 0.0, "improved": 1.0}
+    assert report.holdout.metrics[binding.key].wins == 1
 
 
 def test_tie_overlap_and_budget_on_real_transport_retries():
@@ -200,6 +235,39 @@ def test_genetic_feedback_uses_the_bound_objective_and_only_labeled_fields():
         for entry in group
     )
     assert all("staff-only-marker" not in user for _, user in model.calls)
+
+
+def test_dspy_trial_uses_the_mapped_reference(monkeypatch):
+    dspy = pytest.importorskip("dspy")
+    from types import SimpleNamespace
+
+    trial_scores = []
+
+    class Trial:
+        def __init__(self, metric, **kwargs):
+            self.metric = metric
+
+        def compile(self, program, *, trainset, **kwargs):
+            trial_scores.append(
+                self.metric(trainset[0], SimpleNamespace(response="wrong"))
+            )
+            return program
+
+    monkeypatch.setattr(dspy, "MIPROv2", Trial)
+    data = Dataset.from_records([dict(labeled("train").record(0), response="right")])
+    optimizer = create_optimizer(
+        "optimization.prompt.dspy_mipro", llm=ScriptModel(), max_candidates=2
+    )
+    optimizer.run(
+        "original",
+        train=data,
+        holdout=Dataset.from_records([dict(data.record(0), case_id="holdout")]),
+        metric=MetricBinding(
+            create_metric("metric.text.exact_match"),
+            input_map={"reference": "response"},
+        ),
+    )
+    assert trial_scores == [0.0]
 
 
 def test_dspy_trial_rejects_score_outside_the_objective_range(monkeypatch):

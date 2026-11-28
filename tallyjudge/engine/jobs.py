@@ -160,6 +160,8 @@ class MetricJob(Job[ScoreResult]):
             for k, v in self.metadata.items()
             if k not in ("input_map", "value_range")
         }
+        # A model can select a different recorded reply for the active case.
+        scoring["config_snapshot"] = self.binding.metric.config_snapshot()
         key = json_sha256(
             [cache.namespace, scoring, self.inputs_sha256], sort_keys=True
         )

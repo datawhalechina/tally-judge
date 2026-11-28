@@ -21,14 +21,14 @@ ROW = {
 }
 
 
-def _judge(client, verdicts):
-    client.chat_reply(json.dumps({"statements": ["工作日九点开放", "周末开放"]}))
+def _judge(client, statements, verdicts):
+    client.chat_reply(json.dumps({"statements": statements}))
     client.chat_reply(
         json.dumps(
             {
                 "statements": [
-                    {"statement": str(i), "reason": f"理由{i}", "verdict": v}
-                    for i, v in enumerate(verdicts)
+                    {"statement": statement, "reason": f"理由{i}", "verdict": verdict}
+                    for i, (statement, verdict) in enumerate(verdicts)
                 ]
             }
         )
@@ -43,25 +43,63 @@ async def test_faithfulness_names_the_unsupported_statement_and_survives_storage
     client, tmp_path
 ):
     store = create_storage_backend("storage.local.jsonl", root=tmp_path)
-    metric = create_metric(FAITH, llm=_judge(client, [1, 0]))
+    judge = _judge(
+        client, ["工作日九点开放", "周末开放"], [("周末开放", 0), ("工作日九点开放", 1)]
+    )
+    metric = create_metric(FAITH, llm=judge)
     result = await Evaluator([metric], backend=store).arun(Dataset.from_records([ROW]))
     expected = [
-        {"statement": "工作日九点开放", "supported": True, "reason": "理由0"},
-        {"statement": "周末开放", "supported": False, "reason": "理由1"},
+        {"statement": "工作日九点开放", "supported": True, "reason": "理由1"},
+        {"statement": "周末开放", "supported": False, "reason": "理由0"},
     ]
     score = store.load_run(result.run_id).rows[0].metrics[FAITH]
     assert score.value == 0.5 and score.details == {"statements": expected}
     assert result.metrics[FAITH]["revision"] == "2"
+    assert result.metrics[FAITH]["config_snapshot"]["verdict_matching"] == "statement"
 
 
 @pytest.mark.asyncio
 async def test_faithfulness_rejects_a_verdict_count_that_differs_from_the_statements(
     client,
 ):
-    metric = create_metric(FAITH, llm=_judge(client, [1]))
+    metric = create_metric(FAITH, llm=_judge(client, ["A", "B"], [("A", 1)]))
     result = await Evaluator([metric]).arun(Dataset.from_records([ROW]))
     score = result.rows[0].metrics[FAITH]
     assert (score.status, score.error.code) == ("error", "verdict_count")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("wrong", ["A", "other"])
+async def test_faithfulness_requires_one_verdict_for_each_original_statement(
+    client, wrong
+):
+    judge = _judge(client, ["A", "B"], [("A", 1), (wrong, 1)])
+    metric = create_metric(FAITH, llm=judge)
+    result = await Evaluator([metric]).arun(Dataset.from_records([ROW]))
+    score = result.rows[0].metrics[FAITH]
+    assert (score.status, score.value, score.error.code) == (
+        "error",
+        None,
+        "verdict_statement_mismatch",
+    )
+
+
+@pytest.mark.asyncio
+async def test_faithfulness_matches_repeated_statements_by_occurrence(client):
+    judge = _judge(client, ["A", "B", "A"], [("B", 1), ("A", 0), ("A", 1)])
+    metric = create_metric(FAITH, llm=judge)
+    score = await metric.ascore_inputs(ROW)
+    assert score.value == pytest.approx(2 / 3)
+    assert score.details["statements"] == [
+        {"statement": "A", "supported": False, "reason": "理由1"},
+        {"statement": "B", "supported": True, "reason": "理由0"},
+        {"statement": "A", "supported": True, "reason": "理由2"},
+    ]
+    assert metric.config_snapshot()["verdict_matching"] == "statement"
+    assert (
+        "verdict_matching"
+        not in create_metric(FAITH, llm=judge, revision="1").config_snapshot()
+    )
 
 
 def test_details_must_be_a_json_object():

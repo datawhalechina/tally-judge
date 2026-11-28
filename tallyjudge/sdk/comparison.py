@@ -111,6 +111,28 @@ def _experiment_input_change(
     return f"{kind}_unverified" if unknown else None
 
 
+def binding_differences(a: dict[str, Any], b: dict[str, Any]) -> tuple[str, ...]:
+    """Name the scoring settings that make two metric bindings incomparable."""
+    changes = [
+        name
+        for name in ("id", "revision", "config_snapshot", "input_map")
+        if not _same(a[name], b[name])
+    ]
+    for name, default in (
+        ("output_kind", "numeric"),
+        ("direction", "higher_is_better"),
+        ("labels", None),
+        ("levels", None),
+        ("ranking_length", None),
+    ):
+        if not _same(a.get(name, default), b.get(name, default)):
+            changes.append(name)
+    left_range, right_range = a.get("value_range"), b.get("value_range")
+    if left_range is not None and right_range is not None and left_range != right_range:
+        changes.append("value_range")
+    return tuple(changes)
+
+
 def compare_runs(left: RunResult, right: RunResult) -> RunComparison:
     """Compare right minus left for successful numeric scores with the same inputs and settings."""
     return _compare(left, right, None, None)
@@ -151,28 +173,7 @@ def _compare(
             )
             continue
         a, b = left.metrics[key], right.metrics[key]
-        changes = [
-            name
-            for name in ("id", "revision", "config_snapshot", "input_map")
-            if not _same(a[name], b[name])
-        ]
-        for name, default in (
-            ("output_kind", "numeric"),
-            ("direction", "higher_is_better"),
-            ("labels", None),
-            ("levels", None),
-            ("ranking_length", None),
-        ):
-            if not _same(a.get(name, default), b.get(name, default)):
-                changes.append(name)
-        left_range, right_range = a.get("value_range"), b.get("value_range")
-        if (
-            left_range is not None
-            and right_range is not None
-            and left_range != right_range
-        ):
-            changes.append("value_range")
-        binding_changes[key] = tuple(changes)
+        binding_changes[key] = binding_differences(a, b)
     rows = []
     for case_id in dict.fromkeys((*before, *after)):
         lrow, lhash = before.get(case_id, (None, None))

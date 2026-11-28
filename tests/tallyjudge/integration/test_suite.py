@@ -29,7 +29,7 @@ path = "samples.jsonl"
 
 [models.judge]
 plugin = "model.replay.jsonl"
-path = "{recording}"
+path = {recording}
 
 [metrics.grounded]
 plugin = "metric.rag.faithfulness"
@@ -66,7 +66,10 @@ def suite_file(client, tmp_path):
         json.dumps(ROW, ensure_ascii=False) + "\n", encoding="utf-8"
     )
     path = tmp_path / "suite.toml"
-    path.write_text(SUITE.format(recording=tmp_path / "judge.jsonl"), encoding="utf-8")
+    path.write_text(
+        SUITE.format(recording=json.dumps(str(tmp_path / "judge.jsonl"))),
+        encoding="utf-8",
+    )
     return path
 
 
@@ -89,7 +92,7 @@ async def test_overlay_replaces_a_named_model_without_touching_the_suite(
     other.write_bytes((tmp_path / "judge.jsonl").read_bytes())
     overlay = tmp_path / "overlay.toml"
     overlay.write_text(
-        f'[models.judge]\nplugin = "model.replay.jsonl"\npath = "{other}"\n',
+        f'[models.judge]\nplugin = "model.replay.jsonl"\npath = {json.dumps(str(other))}\n',
         encoding="utf-8",
     )
     base = await Suite.load(suite_file).arun()

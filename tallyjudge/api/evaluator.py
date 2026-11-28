@@ -3,7 +3,6 @@ import logging
 from collections.abc import Sequence
 from typing import Any
 
-from tallyjudge.api.controls import dataset_bound
 from tallyjudge.engine.config import ExecutionConfig
 from tallyjudge.engine.jobs import RowFunction
 from tallyjudge.engine.scheduler import run_tasks
@@ -68,6 +67,8 @@ class Evaluator:
         row_function: RowFunction | None,
         experiment_metadata: dict[str, Any] | None = None,
     ) -> RunResult:
+        from tallyjudge.api.controls import dataset_bound
+
         collector = collector if collector is not None else RunCollector()
         previous = collector.run_id
         try:

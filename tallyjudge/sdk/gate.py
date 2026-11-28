@@ -64,6 +64,12 @@ class UsageScope:
 _scope: ContextVar[UsageScope | None] = ContextVar("tallyjudge_usage", default=None)
 
 
+def current_case_id() -> str | None:
+    """Return the active evaluation case ID, if this is a row-scoped call."""
+    scope = _scope.get()
+    return scope.case_id if scope is not None else None
+
+
 class RequestLimitReached(RuntimeError): ...
 
 

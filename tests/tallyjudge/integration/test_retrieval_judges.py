@@ -105,6 +105,21 @@ async def test_precision_rejects_empty_answer_before_any_call(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("suffix", ["with_reference", "without_reference"])
+async def test_precision_accepts_positional_question_answer_and_passages(
+    client, suffix
+):
+    metric = create_metric(
+        "metric.rag.context_precision_" + suffix, llm=make_judge(client)
+    )
+    for verdict in (1, 0, 1):
+        client.chat_reply(json.dumps({"verdict": verdict, "reason": "test"}))
+    score = await metric.ascore("question", "answer", ["first", "second", "third"])
+    assert score.value == pytest.approx(5 / 6)
+    assert len(client.calls) == 3
+
+
+@pytest.mark.asyncio
 async def test_failed_later_passage_keeps_usage_from_earlier_attempts(client):
     metric = create_metric(
         "metric.rag.context_precision_with_reference",

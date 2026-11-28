@@ -17,15 +17,26 @@ from tallyjudge.sdk.errors import PluginError
 EXACT = "metric.text.exact_match"
 ROWS = [
     {"case_id": "a", "user_input": "ping", "reference": "PING"},
-    {"case_id": "b", "user_input": "pong", "reference": "nope"},
+    {
+        "case_id": "b",
+        "user_input": "pong",
+        "reference": "nope",
+        "reference_contexts": ["gold evidence"],
+        "expected_tools": ["lookup"],
+    },
 ]
-ECHO = "import json,sys; row=json.load(sys.stdin); print(json.dumps({'response': row['user_input'].upper()}))"
+ECHO = (
+    "import json,sys; row=json.load(sys.stdin); "
+    "print(json.dumps({'response': row['user_input'].upper(), 'received': row}))"
+)
 
 
 class _Upper(BaseHTTPRequestHandler):
     def do_POST(self):
         row = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-        body = json.dumps({"response": row["user_input"].upper()}).encode()
+        body = json.dumps(
+            {"response": row["user_input"].upper(), "received": row}
+        ).encode()
         self.send_response(200)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
@@ -44,22 +55,33 @@ def endpoint():
     server.server_close()
 
 
-def _scores(runner):
+@pytest.fixture(params=["runner.http.json", "runner.command.json"])
+def runner_settings(request):
+    if request.param == "runner.http.json":
+        return request.param, {"url": request.getfixturevalue("endpoint")}
+    return request.param, {"command": [sys.executable, "-c", ECHO]}
+
+
+@pytest.mark.parametrize(
+    ("options", "expected_input"),
+    [
+        ({}, {"user_input": "pong"}),
+        (
+            {"input_fields": ["user_input", "case_id"]},
+            {"user_input": "pong", "case_id": "b"},
+        ),
+    ],
+)
+def test_runner_sends_selected_fields_and_scores_against_dataset(
+    runner_settings, options, expected_input
+):
+    plugin, settings = runner_settings
+    runner = create_runner(plugin, **settings, **options)
     result = experiment(runner).run(
         Dataset.from_records(ROWS), metrics=[create_metric(EXACT)]
     )
-    return [row.metrics[EXACT].value for row in result.rows], result
-
-
-def test_http_runner_feeds_application_output_to_metrics(endpoint):
-    scores, result = _scores(create_runner("runner.http.json", url=endpoint))
-    assert scores == [1.0, 0.0]
-    assert result.row_for("a").task.output == {"response": "PING"}
-
-
-def test_command_runner_feeds_application_output_to_metrics():
-    runner = create_runner("runner.command.json", command=[sys.executable, "-c", ECHO])
-    assert _scores(runner)[0] == [1.0, 0.0]
+    assert result.row_for("b").task.output["received"] == expected_input
+    assert [row.metrics[EXACT].value for row in result.rows] == [1.0, 0.0]
 
 
 def test_failed_command_is_recorded_as_an_experiment_error():

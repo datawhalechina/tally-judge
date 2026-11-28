@@ -57,4 +57,4 @@ for row in run.rows:
 | HTTP 服务 | 把 `create_runner("runner.http.json", url=...)` 传给 `experiment`。运行器用 POST 发送 JSON 对象，读取响应里的 JSON 对象。 |
 | 命令行程序 | 把 `create_runner("runner.command.json", command=[...])` 传给 `experiment`。程序从标准输入读取一个 JSON 对象，将结果对象写到标准输出。 |
 
-HTTP 和命令行运行器会把样本行发送给应用。需要单独控制请求字段时，可像上例一样用 Python 函数只传应用需要的列。运行结束后，`run.row_for("loans").task` 保留该题的执行状态和应用输出。要看改版后哪些题变差，接着阅读[保存与比较结果](/evaluate/runs/results)。
+HTTP 和命令行运行器默认只发送 `user_input`。应用还需要语言等信息时，用 `input_fields=["user_input", "language"]` 指定要传的全部字段。运行结束后，`run.row_for("loans").task` 保留该题的执行状态和应用输出。要看改版后哪些题变差，接着阅读[保存与比较结果](/evaluate/runs/results)。

@@ -94,7 +94,7 @@ async def main():
 asyncio.run(main())
 ```
 
-如果裁判把“工作日上午九点开放”和“周末也开放”识别为两条陈述，只判定第一条有依据，这条回答的忠实度就是 `0.5`。`score.details["statements"]` 逐条列出陈述、是否有依据和裁判给的理由，可以直接看到是哪一条拉低了分数。裁判返回的判定条数和陈述条数不一致时，这次评分记为模型输出错误。创建时传 `revision="1"` 可以保留与 Ragas 相同的旧算法：按返回的判定条数计算，不保留明细。
+如果裁判把“工作日上午九点开放”和“周末也开放”识别为两条陈述，只判定第一条有依据，这条回答的忠实度就是 `0.5`。`score.details["statements"]` 逐条列出陈述、是否有依据和裁判给的理由，可以直接看到是哪一条拉低了分数。判定按陈述原文和出现次数对齐，裁判改变返回顺序也能还原明细。返回空列表时记为 `undefined`，有判定但缺少、替换或多出陈述时记为模型输出错误。创建时传 `revision="1"` 可以保留与 Ragas 相同的旧算法：按返回的判定条数计算，不保留明细。
 
 答案相关性、语义相似度这类指标还需要嵌入模型。在同一个 `async with` 内用同一个客户端创建，再设置环境变量 `EMBEDDING_MODEL`：
 
@@ -107,7 +107,7 @@ embedder = create_embedding_model(
 relevance = create_metric("metric.rag.answer_relevance", llm=judge, embeddings=embedder)
 ```
 
-想让同一批评测在没有密钥的环境里重跑（例如放进 CI），可以把裁判的回答录下来。第一次用 `create_language_model("model.replay.jsonl", path="judge.jsonl", llm=judge)` 包住真实裁判，回答会写进文件；之后去掉 `llm` 参数，同样的提示词直接从文件取回答，不发请求。文件里没有的提示词会记为模型错误。
+想让同一批评测在没有密钥的环境里重跑（例如放进 CI），可以把裁判的回答录下来。为这次评测选择一个新文件，用 `create_language_model("model.replay.jsonl", path="judge.jsonl", llm=judge)` 录制每次成功的模型回答。回放时去掉 `llm`，每轮重新创建回放模型。同一样本多次发送相同提示词时，按调用顺序读取各次回答。需要调换样本顺序时，请在录制和回放时使用相同的显式 `case_id`。早期文件里只保存过一次的回答只能回放一次，缺少后续回答时记为模型错误。
 
 `temperature` 需要显式指定。不传时插件不发送该参数，由服务端默认值决定（常见为 1.0），裁判的判断会更不稳定。客户端在哪个事件循环里创建，就只能在那个循环里使用：在一个 `asyncio.run(main())` 内创建客户端、连续 `await Evaluator(...).arun(dataset)`，不要用同一个模型反复调用同步的 `run()`。
 
@@ -372,7 +372,7 @@ print(result.row_for("闭馆日").task.output, result.summary["metric.text.exact
 
 需要等待网络或磁盘的函数请写成 `async def`，并用 `await answer.arun(...)` 运行。
 
-被测应用是一个 HTTP 服务或一个命令行程序时，不用自己写函数。运行器把每行样本作为 JSON 发过去，把返回的 JSON 对象当作这一行的输出：
+被测应用是 HTTP 服务或命令行程序时，可以使用内置运行器。默认只发送包含 `user_input` 的 JSON 对象，参考答案和参考证据留在评测端。需要传入其他字段时，通过 `input_fields` 列出被测应用需要的全部列名，例如 `input_fields=["user_input", "language"]`。
 
 ```python
 from tallyjudge import create_runner, experiment
@@ -458,7 +458,7 @@ by_topic = create_analyzer("analyzer.summary.by_field", field="topic")
 print(by_topic.analyze([result])["runs"][0]["groups"])
 ```
 
-`analyzer.summary.by_field` 按样本里某个字段的取值分组，每组给出和整体汇总同样口径的统计，需要运行结果里保留了原始样本。`analyzer.stability.repeats` 接收同一批样本的多次运行，报告每个指标有多少样本的分数完全一致、分数的最大波动，以及哪些样本不稳定。命令行里的用法：
+`analyzer.summary.by_field` 按样本里某个字段的取值分组，每组给出和整体汇总同样口径的统计，需要运行结果里保留了原始样本。`analyzer.stability.repeats` 比较多次运行中共有的样本和指标，报告相同分数的样本数、最大波动和不稳定样本。相同样本 ID 的原始内容有变化，或同名指标的插件、版本、配置或字段映射有变化时，分析器会指出差异并停止比较。命令行里的用法：
 
 ```bash
 tallyjudge runs analyze RUN_ID --store runs --analyzer analyzer.summary.by_field --option field=topic

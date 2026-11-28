@@ -1,7 +1,7 @@
 """Faithfulness scoring and original prompts from Ragas ec00339 (Apache-2.0)."""
 
-import logging
-from typing import Literal
+from collections import defaultdict, deque
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -13,8 +13,6 @@ from tallyjudge.sdk.metrics import MetricSpec
 from tallyjudge.sdk.models import LanguageModel
 from tallyjudge.sdk.plugin import Plugin
 from tallyjudge.sdk.results import MetricResult
-
-logger = logging.getLogger(__name__)
 
 
 class StatementGeneratorInput(BaseModel):
@@ -156,9 +154,16 @@ class FaithfulnessMetric(ModelJudge):
         config = FaithfulnessConfig.model_validate({"revision": revision})
         self.spec = self.spec_from_config(revision=config.revision)
 
+    def config_snapshot(self) -> dict[str, Any]:
+        snapshot = super().config_snapshot()
+        if self.spec.revision == "2":
+            snapshot["verdict_matching"] = "statement"
+        return snapshot
+
     async def ascore(
         self, user_input: str, response: str, retrieved_contexts: list[str]
     ) -> MetricResult:
+        """Judge generated statements and report revision 2 evidence in their original order."""
         prompt = StatementGeneratorPrompt().render(
             StatementGeneratorInput(question=user_input, answer=response)
         )
@@ -178,16 +183,21 @@ class FaithfulnessMetric(ModelJudge):
             return MetricResult(score)
         if len(verdicts) != len(statements):
             raise ModelOutputError("verdict_count")
-        return MetricResult(
-            score,
-            details={
-                "statements": [
-                    {
-                        "statement": statement,
-                        "supported": bool(item.verdict),
-                        "reason": item.reason,
-                    }
-                    for statement, item in zip(statements, verdicts, strict=True)
-                ]
-            },
-        )
+
+        by_statement: dict[str, deque[StatementFaithfulnessAnswer]] = defaultdict(deque)
+        for item in verdicts:
+            by_statement[item.statement].append(item)
+        details = []
+        for statement in statements:
+            matches = by_statement[statement]
+            if not matches:
+                raise ModelOutputError("verdict_statement_mismatch")
+            item = matches.popleft()
+            details.append(
+                {
+                    "statement": statement,
+                    "supported": bool(item.verdict),
+                    "reason": item.reason,
+                }
+            )
+        return MetricResult(score, details={"statements": details})
