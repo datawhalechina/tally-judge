@@ -23,6 +23,7 @@ tallyjudge/_version.py
 
 # Local runs, caches and event logs created while trying the library
 runs/
+!/docs/evaluate/runs/
 *.sqlite
 
 # Temporary working notes (see AGENTS.md)
@@ -41,3 +42,11 @@ calibration/
 .claude/*
 !.claude/commands/
 .DS_Store
+
+# Blume documentation site
+node_modules/
+/docs/public/examples/
+/docs/.blume/
+/docs/.blume-verify/
+/docs/.astro/
+/docs/.env.local

@@ -19,6 +19,19 @@ uv add tallyjudge
 
 默认安装可以运行精确匹配、字符串包含、文档 ID 检索精度与召回，以及自定义函数指标。按文本距离匹配时，运行 `uv add "tallyjudge[text-distance]"` 安装 RapidFuzz。使用 OpenAI Python SDK 接入裁判时，运行 `uv add "tallyjudge[openai]"`。同时使用两者时，运行 `uv add "tallyjudge[openai,text-distance]"`。
 
+## 可运行的 RAG 示例
+
+每个脚本都自带样例数据，可以从仓库根目录单独运行。按手头的数据选择示例、了解各项分数的含义，可从 [RAG 使用指南](docs/evaluate/index.md) 开始。
+
+| 手头的数据 | 脚本 | 能看到什么 |
+|---|---|---|
+| 问题、标准答案、系统回答和召回块 | [用 OpenAI 给 RAG 评分](examples/rag_openai_judge.py) | 回答把运费承担方说反了。分别看回答有多少陈述得到证据支持、相关块排得是否靠前、召回块覆盖了多少参考答案。 |
+| 问题、标准答案和召回块，尚无系统回答 | [先作答再评分](examples/rag_answer_then_score.py) | 模型只根据问题和召回块作答，再由裁判对照标准答案评估回答准确性。 |
+| 检索返回的块 ID 和人工标注的相关块 ID | [本地评估检索](examples/rag_retrieval_ids.py) | 对比“多召回了一块”和“漏召回了一块”对精度、召回率的影响。运行 `uv run examples/rag_retrieval_ids.py` 即可，无需密钥。 |
+| 只有知识库切片 | [从切片生成题集](examples/rag_generate_testset.py) | 从两段材料生成最多两道题，查看参考答案和对应证据。 |
+
+OpenAI 示例的密钥、模型名和可选服务地址都在脚本开头配置。
+
 ## 用参考答案给一批回答评分
 
 下面的例子比较图书馆问答系统的两条回答。`response` 是系统给出的回答，`reference` 是参考答案。两个文本指标都在本地计算，无需 API 密钥。
@@ -252,7 +265,7 @@ async def make_mixed_set(graph: EvidenceGraph, judge: LanguageModel):
 
 答案准确度、上下文相关度和回答依据使用两个裁判提示。每路默认最多尝试 5 次取得有效等级，可在 `create_metric` 时设置 `max_retries=1`。只有一路取得有效等级时按该路给分，两路都耗尽等级尝试时记为 `undefined`。模型拒答、传输或结构解析失败会返回错误状态。
 
-各字段的含义和列名映射的写法见[样本字段约定](docs/fields.zh-CN.md)。
+各字段的含义和列名映射的写法见[样本字段约定](docs/evaluate/reference/fields.md)。
 
 ### 评 Agent 的运行记录
 
@@ -335,7 +348,7 @@ print(result.summary["metric.library.length_ratio"]["mean"])  # 1.0
 
 `categorical_metric(..., labels=[...])` 用于固定标签的分类结果，`ranking_metric(..., length=n)` 用于固定长度的排序结果。
 
-想把指标、模型接入或存储后端做成可以单独发布和安装的包，见[编写插件](docs/plugins.zh-CN.md)。安装后的插件会出现在 `tallyjudge metrics list` 里，用法和内置插件相同。
+想把指标、模型接入或存储后端做成可以单独发布和安装的包，见[编写插件](docs/plugins/index.md)。安装后的插件会出现在 `tallyjudge metrics list` 里，用法和内置插件相同。
 
 ## 评测自己的应用
 

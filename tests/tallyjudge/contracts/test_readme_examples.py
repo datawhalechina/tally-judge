@@ -17,7 +17,9 @@ def test_readme_names_every_registered_plugin():
 
 
 def test_field_conventions_cover_every_metric_input():
-    document = (ROOT / "docs" / "fields.zh-CN.md").read_text(encoding="utf-8")
+    document = (ROOT / "docs" / "evaluate" / "reference" / "fields.md").read_text(
+        encoding="utf-8"
+    )
     settings = {
         "metric.custom.numeric": {"criteria": "x"},
         "metric.custom.categorical": {"criteria": "x", "labels": ["a", "b"]},

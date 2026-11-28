@@ -14,6 +14,19 @@ uv sync --python 3.12
 
 uv 会在 `.venv` 中安装当前源码和开发工具。首次解析会生成 `uv.lock`，后续同步复用锁定的版本。锁文件也记录可选插件在不同 Python 版本和系统上的发行包。修改模型插件时，用 `uv sync --locked --group integration` 装入迁移对照所用的 SDK 和 Pydantic 版本。
 
+## 在本地预览文档
+
+网站使用 Blume。页面、站点配置和主题均在 `docs/` 下。从仓库根目录运行以下命令。
+
+```bash
+npm ci
+npm run docs:dev
+```
+
+开发服务器会打印预览地址，修改 Markdown 后可即时预览。停止预览后，运行 `npm run docs:build` 可在 `docs/dist/` 查看静态构建结果。
+
+GitHub Pages 的发布源选择 **GitHub Actions**。文档或构建配置合并到 `main` 后，文档工作流会重新构建并将 `docs/dist/` 上传给 Pages。提交页面、主题和配置即可，构建产物留在本地或 Actions 运行记录里。
+
 ## 提交前的检查
 
 ```bash

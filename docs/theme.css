@@ -1,0 +1,99 @@
+:root {
+  --blume-content-width: 68rem;
+}
+
+/* Reserve room for both navigation rails on desktop. */
+@media (min-width: 80rem) {
+  [data-blume-doc-grid]:has(> [data-blume-toc]) {
+    grid-template-columns: 16rem minmax(0, 1fr) 14rem;
+  }
+}
+
+/* Blume uses tabs to scope each product. Its header selector is the switcher. */
+[data-blume-header] > nav,
+[data-blume-nav-drawer] > nav[aria-label="章节"],
+[data-blume-nav-drawer] > div:has(> [data-blume-dropdown]:only-child) {
+  display: none;
+}
+
+/* Keep product switching in the header when the page tree becomes a drawer. */
+[data-blume-header] > div:first-child > div:has(> [data-blume-dropdown]) {
+  display: flex;
+}
+
+/* The home page provides its own navigation, including on small screens. */
+body:has(.tj-home) :is([data-blume-nav-drawer], [data-blume-nav-toggle]) {
+  display: none;
+}
+
+.tj-home {
+  max-width: 90rem;
+  margin-inline: auto;
+  padding: clamp(1rem, 3vw, 2.25rem) clamp(1rem, 3vw, 2.5rem) 3rem;
+}
+
+.tj-home .tj-intro {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(8rem, 17vw, 12rem);
+  align-items: center;
+  gap: 2rem;
+  margin-bottom: 2rem;
+  padding: clamp(1.25rem, 4vw, 2.75rem);
+  border: 1px solid var(--blume-border);
+  border-radius: 1rem;
+  background: linear-gradient(115deg, var(--blume-background) 30%, color-mix(in srgb, #7987e6 15%, var(--blume-background)));
+}
+
+.tj-intro h1 {
+  margin: 0 0 1rem;
+  font-size: clamp(1.8rem, 3.4vw, 2.8rem);
+  line-height: 1.22;
+  letter-spacing: -0.035em;
+}
+
+.tj-intro p {
+  margin: 0;
+  max-width: 38rem;
+  line-height: 1.75;
+}
+
+.tj-intro img {
+  width: 100%;
+  height: auto;
+  margin: 0;
+}
+
+.tj-start p {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .6rem 1.25rem;
+  margin-top: 1.2rem;
+}
+
+.tj-start a:first-child {
+  border-radius: .5rem;
+  padding: .55rem .95rem;
+  background: var(--blume-foreground);
+  color: var(--blume-background);
+  text-decoration: none;
+}
+
+.tj-start a:first-child:hover {
+  text-decoration: underline;
+}
+
+.tj-home h2 {
+  margin-top: 2.25rem;
+  font-size: 1.4rem;
+}
+
+@media (max-width: 42rem) {
+  .tj-home .tj-intro {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  .tj-intro > p:has(img) {
+    display: none;
+  }
+}

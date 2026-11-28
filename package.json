@@ -1,0 +1,22 @@
+{
+  "name": "tallyjudge-docs",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "predocs:dev": "node scripts/docs-assets.mjs",
+    "docs:dev": "cd docs && blume dev",
+    "predocs:build": "node scripts/docs-assets.mjs",
+    "docs:build": "cd docs && blume build",
+    "docs:preview": "cd docs && blume preview",
+    "predocs:check": "node scripts/docs-assets.mjs",
+    "docs:check": "cd docs && blume validate"
+  },
+  "devDependencies": {
+    "@fontsource-variable/inter": "^5.3.0",
+    "@fontsource/ibm-plex-mono": "^5.3.0",
+    "blume": "2.2.7"
+  }
+}

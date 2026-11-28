@@ -1,0 +1,66 @@
+---
+title: TallyJudge 文档
+description: 用本地样本开始评测，检查 RAG 的召回与回答、Agent 的工具调用，或开发自己的评测插件。
+mode: custom
+---
+
+<div class="tj-home">
+<div class="tj-intro">
+<div>
+
+# 用 TallyJudge 评测 RAG 与 Agent
+
+从两道图书馆问答开始。运行一个本地应用，看看它答对了哪道题、找错了哪份文档。整个示例使用 Python 3.12 或更高版本，无需模型密钥。
+
+<div class="tj-start">
+
+[运行第一个离线示例](/evaluate/runs/applications)
+[查看全部指标](/evaluate/reference/metrics)
+
+</div>
+
+</div>
+
+![TallyJudge](/icon.png)
+
+</div>
+
+## 按手头的数据开始
+
+<CardGroup cols={2}>
+  <Card title="我有问题、回答和召回块" href="/evaluate/rag/quickstart" icon="messages-square" arrow>
+    用裁判模型核对一条退货回答，分别检查证据是否找齐、排序是否合理、回答是否有依据。
+  </Card>
+  <Card title="我有召回块 ID 和相关性标注" href="/evaluate/rag/metrics#有标注的证据块-id" icon="list-checks" arrow>
+    对照召回 ID 与标注 ID，在本地计算检索精度和召回率。
+  </Card>
+  <Card title="我只有知识库，还没有评测题" href="/evaluate/rag/workflow" icon="book-open" arrow>
+    从文档生成问题、参考答案与证据块，再让自己的检索和作答系统跑同一份题集。
+  </Card>
+  <Card title="我有 Agent 的工具调用日志" href="/evaluate/agent/traces" icon="workflow" arrow>
+    导入 JSONL 轨迹，在本地检查工具是否调对，以及实际参数有没有指向错误的订单。
+  </Card>
+</CardGroup>
+
+## 运行和比较评测
+
+| 想完成的事 | 对应指南 |
+| --- | --- |
+| 把已有数据接进框架 | [核对样本字段，映射自己的列名](/evaluate/reference/fields) |
+| 按业务验收标准判分 | [编写评分函数或五级量表](/evaluate/runs/scoring-rules) |
+| 在命令行复跑同一批样本 | [把题集和指标写进 TOML 配置](/evaluate/runs/suites) |
+| 确认新版本改好了哪些题，又退步了哪些题 | [按样本 ID 比较两次结果](/evaluate/runs/results) |
+
+## 插件开发
+
+要让其他项目复用自己的评分公式或模型服务，可以从[插件开发指南](/plugins)查 SDK 契约，再按任务进入具体教程。
+
+<CardGroup cols={3}>
+  <Card title="编写指标" href="/plugins/metrics" icon="ruler" arrow>声明输入和分数范围，用样本验证一个评分公式。</Card>
+  <Card title="接入模型" href="/plugins/model-adapters" icon="plug" arrow>实现语言模型或嵌入适配器，记录用量并验证返回值。</Card>
+  <Card title="注册与测试" href="/plugins/registration-and-tests" icon="package" arrow>把插件安装到新环境，确认命令行能按 ID 找到它。</Card>
+</CardGroup>
+
+Text2SQL 评测和独立的 Streamlit 可视化前端仍在规划中。
+
+</div>

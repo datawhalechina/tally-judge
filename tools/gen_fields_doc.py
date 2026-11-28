@@ -3,7 +3,13 @@ from pathlib import Path
 
 from tallyjudge.registry import registry
 
-TARGET = Path(__file__).resolve().parents[1] / "docs" / "fields.zh-CN.md"
+TARGET = (
+    Path(__file__).resolve().parents[1]
+    / "docs"
+    / "evaluate"
+    / "reference"
+    / "fields.md"
+)
 SETTINGS = {
     "metric.custom.numeric": {"criteria": "x"},
     "metric.custom.categorical": {"criteria": "x", "labels": ["a", "b"]},
@@ -26,7 +32,10 @@ MEANING = {
     "expected_state": "期望的最终状态，只写需要核对的部分",
     "rubrics": "这条样本自己的五档评分说明",
 }
-HEAD = """# 样本字段约定
+HEAD = """---
+title: 样本字段约定
+description: 查阅内置指标使用的样本字段，并把数据集的列映射为指标输入。
+---
 
 内置指标按下面的字段名从样本里取值。这些名字是约定，不是内核的一部分：`tallyjudge.sdk` 和 `tallyjudge.engine` 的代码里不出现它们，内核只按每个指标声明的输入做校验。
 
